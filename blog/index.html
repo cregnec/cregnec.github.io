@@ -1,6 +1,6 @@
 ---
 layout: blog-default
-title: Blog
+title: My Blog
 description: This website describes my personal reverse engineering experiences.
 ---
 
@@ -14,9 +14,10 @@ description: This website describes my personal reverse engineering experiences.
     <div class="col-sm-12 blog-main">
       {% for post in paginator.posts %}
       <div class="blog-post">
-          <h2 class="blog-post-title">{{ post.title }}</h2>
+          <h3 class="blog-post-title">{{ post.title }}</h3>
         <p class="blog-post-meta">{{ post.date | date: "%b %-d, %Y" }} {% if post.author %} • {{ post.author }}{% endif %}{% if post.meta %} • {{ post.meta }}{% endif %}</p>
-        {{ post.content }}
+        <p class="blog-post-description">{% if post.description %}{{ post.description }}{% endif %}</p>
+        <p><a class="btn btn-default" href="{{ post.url | prepend: site.baseurl }}" role="button">View details &raquo;</a></p>
       </div><!-- /.blog-post -->
       {% endfor %}
 
