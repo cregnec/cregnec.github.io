@@ -1,0 +1,44 @@
+---
+layout: blog-default
+title: Blog
+description: This website describes my personal reverse engineering experiences.
+---
+
+  <!--<div class="blog-header">-->
+  <!--  <h1 class="blog-title">{{ page.title }}</h1>-->
+  <!--  <p class="lead blog-description"></p>-->
+  <!--</div>-->
+
+
+  <div class="row">
+    <div class="col-sm-12 blog-main">
+      {% for post in paginator.posts %}
+      <div class="blog-post">
+          <h2 class="blog-post-title">{{ post.title }}</h2>
+        <p class="blog-post-meta">{{ post.date | date: "%b %-d, %Y" }} {% if post.author %} • {{ post.author }}{% endif %}{% if post.meta %} • {{ post.meta }}{% endif %}</p>
+        {{ post.content }}
+      </div><!-- /.blog-post -->
+      {% endfor %}
+
+      <nav>
+        <ul class="pager">
+        {% if paginator.total_pages > 1 %}
+        <div class="pagination">
+          {% if paginator.previous_page %}
+            <li><a href="{{ paginator.previous_page_path | prepend: site.baseurl | replace: '//', '/' }}">&laquo; Prev</a></li>
+          {% else %}
+            <li><span>&laquo; Prev</span></li>
+          {% endif %}
+
+          {% if paginator.next_page %}
+            <li><a href="{{ paginator.next_page_path | prepend: site.baseurl | replace: '//', '/' }}">Next &raquo;</a></li>
+          {% else %}
+            <li><span>Next &raquo;</span></li>
+          {% endif %}
+        </div>
+        {% endif %}
+        </ul><!-- /.pager -->
+      </nav>
+    </div><!-- /.blog-main -->
+
+  </div><!-- /.row -->

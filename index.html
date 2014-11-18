@@ -1,0 +1,16 @@
+---
+layout: default
+---
+    <!-- Example row of columns -->
+    <div class="row"> 
+      {% for post in site.categories.phd%}
+        <div class="col-md-4">
+          <h2>{{ post.title }}</h2>
+          <p>{{ post.date | date: "%b %-d, %Y" }}</p>
+          <p><a class="btn btn-default" href="{{ post.url | prepend: site.baseurl }}" role="button">View details &raquo;</a></p>
+        </div>
+      {% endfor %}
+    </div>
+
+
+</div>

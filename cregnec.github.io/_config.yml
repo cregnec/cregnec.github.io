@@ -1,0 +1,18 @@
+# Site settings
+title: Try to reverse and do my PhD
+email: cregnec@gmail.com
+description: > # this means to ignore newlines until "baseurl:"
+    Personal reverse engineering experiences and PhD study, Xiao Han 
+baseurl: "" # the subpath of your site, e.g. /blog/
+url: "http://cregnec.github.io" # the base hostname & protocol for your site
+twitter_username: cregnec
+github_username:  cregnec
+
+#handle reading
+safe: true
+# Build settings
+markdown: kramdown
+
+#pagination
+paginate: 5
+paginate_path: "blog/page:num/"    
