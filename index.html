@@ -2,15 +2,49 @@
 layout: default
 ---
     <!-- Example row of columns -->
-    <div class="row"> 
-      {% for post in site.categories.phd%}
-        <div class="col-md-4">
-          <h2>{{ post.title }}</h2>
-          <p>{{ post.date | date: "%b %-d, %Y" }}</p>
-          <p><a class="btn btn-default" href="{{ post.url | prepend: site.baseurl }}" role="button">View details &raquo;</a></p>
+    <div class="row">
+        <div class="span12">
+        <h2> PUBLICATIONS </h2>
+        
         </div>
-      {% endfor %}
     </div>
 
+    <div class="publ">
+        <div class="row">
+            <div class="span12">
+                <blockquote>
+                <div class="titl">Behavioral fine-grained detection and classification of P2P bots
+                </div>
+                <div class="authors">Nizar Kheir, Xiao Han, Chirine Wolley</div>
+                <em>Journal of Computer Virology and Hacking Techniques,
+                2014
+                </em>
+                <div>
+                    <button class="btn btn-mini btn-primary" type="button">PDF</button>
+                    <button class="btn btn-mini btn-primary" type="button">Slide</button>
+                    <button class="btn btn-mini btn-primary" type="button">BibTeX</button>
+                    
+                </div>
+                </blockquote>
 
-</div>
+                <blockquote>
+                <div class="titl">PeerViewer: Behavioral Tracking and Classification of P2P Malware
+                </div>
+                <div class="authors">Nizar Kheir, Xiao Han</div>
+                <em>The 5th International Symposium on Cyberspace Safety and Security (CSS 2013),
+                November 13-15, 2013
+                Zhangjiajie, China          
+                </em>
+                <div>
+                    <button class="btn btn-mini btn-primary" type="button">PDF</button>
+                    <button class="btn btn-mini btn-primary" type="button">Slide</button>
+                    <button class="btn btn-mini btn-primary" type="button">BibTeX</button>
+                    
+                </div>
+                </blockquote>
+            </div>
+
+        </div>
+
+    </div>
+
