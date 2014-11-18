@@ -123,7 +123,7 @@ h6, .h6 {
 /* Pagination */
 .pager {
   margin-bottom: 60px;
-  text-align: center;
+  text-align: left;
 }
 .pager > li > a {
   width: 140px;
