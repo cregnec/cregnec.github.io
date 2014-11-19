@@ -75,103 +75,98 @@ fd010000 d3000000 05410000 a8adabba
 
 USB Protocol
 -------------
+I did not know great things about the USB protocol. After some searches on the Internet, it turned out that the trace was generated with the Linux Module *usbmon* [^1]. Thanks to this document, I could understand the trace now. Take the first line of the trace as an example:
 
-L’extrait au-dessus indique cette trace USB provient d’une capture entre
-un ordinateur et un téléphone Android. Mais l’auteur n’y connaissais
-rien sur le format de la trace. Après quelques recherches sur Internet,
-il s’est avéré que la trace a été générée avec le module Linux
-“usbmon”.[^1] Grâce à ce document, la traduction de la trace est
-possible. Prenons la première ligne de la trace comme exemple:
+{% highlight bash %}
+ffff8804ff109d80 1765779215 C Ii:2:005:1 0:8 8 = 00000000 00000000
 
-    ffff8804ff109d80 1765779215 C Ii:2:005:1 0:8 8 = 00000000 00000000
+| ffff8804ff109d80 | = USB request block
+| 1765779215 | = timestamp
+| C | = event type
+| Ii:2:005:1 | = URB type and direction:bus number:device
+                 address:endpoint number
+| 0:8 | = URB status
+| 8 | = data length
+| = | = data tag
+| 00000000 00000000 | = data
+{% endhighlight %}
 
-    | ffff8804ff109d80 | = USB request block
-    | 1765779215 | = timestamp
-    | C | = event type
-    | Ii:2:005:1 | = URB type and direction:bus number:device
-                     address:endpoint number
-    | 0:8 | = URB status
-    | 8 | = data length
-    | = | = data tag
-    | 00000000 00000000 | = data
+I tried first to parse the USB trace with tool *usbmon-parser* [^2]. But it didn't help a lot.
+The following is the results returned by *usemon-parser*:
 
-Un premier essai de parser la trace avec l’outil *usbmon-parser* [^2] a
-malheureusement échoué. Une partie de résultats de cet outil sont les
-suiviants:
+{% highlight bash %}
+$ ./parse_usbmon.sh -v -f  ./usbtrace > trace_usbmon
+$ head trace_usbmon                                                                                          
 
-    $ ./parse_usbmon.sh -v -f  ./usbtrace > trace_usbmon
-    $ head trace_usbmon                                                                                          
+Urb ffff8804ff109d80 Time 1765779215 CBK IntrIn Bus 2 Addr 005 Ept 1
+Urb ffff8804ff109d80 Time 1765779244 SUB IntrIn Bus 2 Addr 005 Ept 1
+Urb ffff88043ac600c0 Time 1765809097 SUB BlkOut Bus 2 Addr 008 Ept 3
+Urb ffff88043ac600c0 Time 1765809154 CBK BlkOut Bus 2 Addr 008 Ept 3
+Urb ffff88043ac60300 Time 1765809224 SUB BlkOut Bus 2 Addr 008 Ept 3
+Urb ffff88043ac60300 Time 1765809279 CBK BlkOut Bus 2 Addr 008 Ept 3
+Urb ffff8804e285ec00 Time 1765810255 CBK BlkIn Bus 2 Addr 008 Ept 5
+Urb ffff8800d0fbf180 Time 1765810282 SUB BlkIn Bus 2 Addr 008 Ept 5
+Urb ffff8800d0fbf180 Time 1765815007 CBK BlkIn Bus 2 Addr 008 Ept 5
+{% endhighlight %}
 
-    Urb ffff8804ff109d80 Time 1765779215 CBK IntrIn Bus 2 Addr 005 Ept 1
-    Urb ffff8804ff109d80 Time 1765779244 SUB IntrIn Bus 2 Addr 005 Ept 1
-    Urb ffff88043ac600c0 Time 1765809097 SUB BlkOut Bus 2 Addr 008 Ept 3
-    Urb ffff88043ac600c0 Time 1765809154 CBK BlkOut Bus 2 Addr 008 Ept 3
-    Urb ffff88043ac60300 Time 1765809224 SUB BlkOut Bus 2 Addr 008 Ept 3
-    Urb ffff88043ac60300 Time 1765809279 CBK BlkOut Bus 2 Addr 008 Ept 3
-    Urb ffff8804e285ec00 Time 1765810255 CBK BlkIn Bus 2 Addr 008 Ept 5
-    Urb ffff8800d0fbf180 Time 1765810282 SUB BlkIn Bus 2 Addr 008 Ept 5
-    Urb ffff8800d0fbf180 Time 1765815007 CBK BlkIn Bus 2 Addr 008 Ept 5
+In fact, *usbmon-parser* analyzed only the USB protocol. However here the trace is actually an exchange happened between a PC and an Android phone, which used the Android Debug Bridge Protocol (ADB) over USB protocol. Therefore, the ADB protocol could not be analyzed by this tool. The following Python script can parse line by line of the USB trace.
 
-En fait, l’outil n’analyse que le protocole USB. Or, ici nous avons une
-trace d’échange entre un ordinateur et un téléphone Android, qui utilise
-le protocole Android Debug Bridge (ADB) au-dessus de protocole USB. Par
-conséquent, l’ADB ne peut pas être analysé par cet outil. Le script
-Python suivant permet de parser line par line de la trace USB.
+{% highlight python linenos %}
+import datetime
+class Pkt():
+    def __init__(self, s):
+        c = s.split()
+        self.urb = c[0]
+        self.ts = c[1]
+        self.ev = c[2]
+        self.adw = c[3]
+        self.bus = self.adw.split(":")[2]
+        self.endpoint = self.adw.split(":")[3]
+        self.ust = c[4]
+        self.ln = c[5]
+        if len(c) > 6:
+            self.tag = c[6]
+            self.data = c[7:]
+        else:
+            self.tag = 0
+            self.data = 0
 
-    import datetime
-    class Pkt():
-        def __init__(self, s):
-            c = s.split()
-            self.urb = c[0]
-            self.ts = c[1]
-            self.ev = c[2]
-            self.adw = c[3]
-            self.bus = self.adw.split(":")[2]
-            self.endpoint = self.adw.split(":")[3]
-            self.ust = c[4]
-            self.ln = c[5]
-            if len(c) > 6:
-                self.tag = c[6]
-                self.data = c[7:]
-            else:
-                self.tag = 0
-                self.data = 0
+    def show_adw(self):
+        a = self.adw.split(":")[0]
 
-        def show_adw(self):
-            a = self.adw.split(":")[0]
+        if a == "Ci":
+            print "Control input"
+        if a == "Co":
+            print "Control output"
+        if a == "Zi":
+            print "Isochronous input"
+        if a == "Zo":
+            print "Isochronous output"
+        if a == "Ii":
+            print "Interrupt input"
+        if a == "Io":
+            print "Interrupt output"
+        if a == "Bi":
+            print "Bulk input"
+        if a == "Bo":
+            print "Bulk output"
 
-            if a == "Ci":
-                print "Control input"
-            if a == "Co":
-                print "Control output"
-            if a == "Zi":
-                print "Isochronous input"
-            if a == "Zo":
-                print "Isochronous output"
-            if a == "Ii":
-                print "Interrupt input"
-            if a == "Io":
-                print "Interrupt output"
-            if a == "Bi":
-                print "Bulk input"
-            if a == "Bo":
-                print "Bulk output"
-
-        def __str__(self):
-            sheader =  1
-            if sheader:
-                print "URB:%s" % self.urb
-                print "ts:%s" % str(datetime.datetime.\
-                fromtimestamp(int(self.ts)).\
-                strftime('%Y-%m-%d %H:%M:%S'))
-                
-                print "ev:%s" % self.ev
-                self.show_adw()
-                print "ust:%s" % self.ust
-                print "ln:%s" % self.ln
-            if self.tag == "=":
-                data = str(self.data)
-                return str(self.data)
+    def __str__(self):
+        sheader =  1
+        if sheader:
+            print "URB:%s" % self.urb
+            print "ts:%s" % str(datetime.datetime.\
+            fromtimestamp(int(self.ts)).\
+            strftime('%Y-%m-%d %H:%M:%S'))
+            
+            print "ev:%s" % self.ev
+            self.show_adw()
+            print "ust:%s" % self.ust
+            print "ln:%s" % self.ln
+        if self.tag == "=":
+            data = str(self.data)
+            return str(self.data)
+{% endhighlight %}
 
 Pour mieux comprendre les traces, le code Python suivant permet
 d’afficher toutes les traces de type “data”. Mais le protocole ADB était
