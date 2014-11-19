@@ -7,6 +7,12 @@ description:
     In September 2014, Quarkslab launched a Python challenge. I like pretty much python so I tried it. The challenge had two steps, a highly nested python lambda function and a custom python interpreter." By reversing the lambda function, I got the link for downloading the custom python interpreter. The second step is more interesting that required to reverse the obfuscated python opcodes.I learned much about python internals.
 ---
 
+Contents
+======
+{:.no_toc}
+*   toc
+{:toc}
+
 Warmup
 ======
 
@@ -441,11 +447,12 @@ $ echo -n 'bacalhauFor The New Lunar Republic' | sha256sum
 61b42c223973996c797a9a366c64c3595052ff71089b4ff13d3251b66b6366e9  -
 {% endhighlight %}
 
-Appendix<a name="appendix"></a>
+Appendix
 ========
 
 run\_me
 -------
+
 {% highlight python linenos%}
 gdb -q ./python
 Reading symbols from ./python...done.
