@@ -35,23 +35,4 @@
   <script src="{{ "/js/bootstrap.min.js" | prepend: site.baseurl }}" ></script>
   <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
   <script src="{{ "/js/ie10-viewport-bug-workaround.js" | prepend: site.baseurl }}"></script>
-  <!--inpage anchor problem with bootstrap fixed-top https://github.com/bkuhn/copyleft-tutorial/commit/476a42bf0d737e13a561dbaf6f4e1e91a333e80d-->
-  <script> 
-     $(window).load(function () {
-         if ($(".navbar.navbar-fixed-top").length > 0) {
-            var navHeight = $(".navbar").height(),
-                shiftWindow = function() {
-                    var ourURL = document.URL;
-                    if ( (ourURL.search("#") > 0) ) {
-                        scrollBy(0, -navHeight - 5);
-                    }
-                };
-            window.addEventListener("hashchange", shiftWindow);
-            
-            //if (location.hash) {
-            //    setTimeout(shiftWindow, 1);
-            //}
-        }
-    });
-  </script>
 </footer>

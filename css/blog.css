@@ -307,3 +307,17 @@ h6, .h6 {
   color: #008080; }
 .highlight .il {
   color: #099; }
+
+/*inpage anchor problem with bootstrap fixed-top https://github.com/bkuhn/copyleft-tutorial/commit/476a42bf0d737e13a561dbaf6f4e1e91a333e80d>*/
+h1[id],
+h2[id],
+h3[id],
+h4[id],
+h5[id],
+h6[id]{
+    border-top: 50px solid transparent;
+    margin-top: -50px;
+    -webkit-background-clip: padding-box;
+    -moz-background-clip: padding;
+    background-clip: padding-box;
+}
