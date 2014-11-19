@@ -1,0 +1,212 @@
+---
+layout: post
+title: Crackmes.de Morph writeup
+date: '2014-03-18T02:41:00.001-07:00'
+tags: reverse engineering, crackmes.de, win32
+category: reverse
+description: A few days ago, I did the Morph crackme of <a href="http://crackmes.de/">Crackmes.de</a>. As its name indicates, the binary is polymorphic. It reads a password and changes itself upon the password entered. If there password is incorrect, it usually has a segmentation fault because the generated instructions would not be valid. In order to find the right password, I had to dig into the intel x86 assembly instructions.
+---
+
+A few days ago, I did the Morph crackme of <a href="http://crackmes.de/">Crackmes.de</a>. Morph is a 32 bits windows executable (Visual C++).  <br />
+<blockquote>Morph: PE32 executable (console) Intel 80386, for MS Windows</blockquote>
+<div class="separator" style="clear: both; text-align: center;"><a href="{{ "/img/blog/crackmes.de/morph/screenshot1.jpg" | prepend: site.baseurl }}" imageanchor="1" style="margin-left: 1em; margin-right: 1em;"><img border="0" src="{{ "/img/blog/crackmes.de/morph/screenshot1.jpg" | prepend: site.baseurl }}" /></a></div>
+<div class="separator" style="clear: both; text-align: left;">
+The function _main begins in a strange manner:</div>
+{% highlight asm %}
+.text:00401863 push esi
+.text:00401864 nop
+.text:00401865 nop
+.text:00401866 nop
+...
+.text:00401880 nop
+.text:00401881 nop
+.text:00401882 pop esi
+{% endhighlight %}
+<div class="separator" style="clear: both; text-align: left;">
+Actually Morph contains a lots of junk code like this, I just ignored them while debugging. Then I arrived at a switch of 22 cases. ds:off_402D8C contains a list of offsets that point to different parts of code. Each part of code pushes a character on the stack and print it. This is how 'What is the password?' is printed.</div><br />
+
+{% highlight asm %}
+.text:00401929 mov     dword ptr [ebp-224h], 0
+.text:00401933 jmp     short loc_401944
+.text:00401935 ;
+.text:00401935
+.text:00401935 inc_counter:                             
+.text:00401935 mov     eax, [ebp-224h]
+.text:0040193B add     eax, 1
+.text:0040193E mov     [ebp-224h], eax
+.text:00401944
+.text:00401944 loc_401944:                             
+.text:00401944 cmp     dword ptr [ebp-224h], 16h
+.text:0040194B jge       scanf
+.text:00401951 mov     ecx, [ebp-224h]
+.text:00401957 mov     [ebp-274h], ecx
+.text:0040195D cmp     dword ptr [ebp-274h], 15h      ; switch 22 cases
+.text:00401964 ja      jmp_inc_counter                ; jumptable 00401970 default case
+.text:0040196A mov     edx, [ebp-274h]
+.text:00401970 jmp     ds:off_402D8C[edx*4]           ; switch jump
+{% endhighlight %}
+Following the instructions, I find that the password length is 7: 
+{% highlight asm %}
+.text:00401CA5 cmp     dword ptr [ebp-228h], 7
+.text:00401CAC jl      short loc_401CB3
+.text:00401CAE call    error_exit
+{% endhighlight %}
+After that I arrived the first check of password using VirtualProtect function.
+{% highlight asm %}
+.text:00401E8A check_pw:
+.text:00401E8A lea     eax, [ebp-8]
+.text:00401E8D push    eax
+.text:00401E8E push    40h
+.text:00401E90 movzx   ecx, byte ptr pw_cp2+2 ;password[6]
+.text:00401E97 sub     ecx, 'E'
+.text:00401E9A imul    ecx, -1
+.text:00401E9D mov     edx, [ebp-218h]
+.text:00401EA3 sub     edx, ecx               ;[ebp-218h] + password[6]-'E'
+.text:00401EA5 push    edx
+.text:00401EA6 mov     eax, [ebp-21Ch]
+.text:00401EAC push    eax
+.text:00401EAD call    ds:VirtualProtect
+.text:00401EB3 test    eax, eax
+.text:00401EB5 jz      short loc_401EB9
+.text:00401EB7 jmp     short loc_401EC6
+.text:00401EB9 ;
+.text:00401EB9
+.text:00401EB9 loc_401EB9:
+.text:00401EB9 call    error_exit
+{% endhighlight %}
+VirtualProtect has four parameters. Here the 7th letter of password is used to created the second parameter 'dwSize' that defines the memory size for function VirutalProtect. If this size exceeds program limit, VirtualProtect will fail and return 0. Otherwise, VirtualProtect returns 1. We need that VirtualProtect returns 1 in order to continue code execution. So I know password[6] is equal or smaller than 'E'. 
+{% highlight c %}
+BOOL WINAPI VirtualProtect(
+  _In_   LPVOID lpAddress,
+  _In_   SIZE_T dwSize,
+  _In_   DWORD flNewProtect,
+  _Out_  PDWORD lpflOldProtect
+);
+{% endhighlight %}
+Following the success jump of VirtualProtect, I find a loop that searches for '52h' meaning push edx in 32bit assembly.
+{% highlight asm %}
+.text:00401ED2 search_pushedx:
+.text:00401ED2 mov     ecx, [ebp-234h]
+.text:00401ED8 add     ecx, 1
+.text:00401EDB mov     [ebp-234h], ecx
+.text:00401EE1
+.text:00401EE1 loc_401EE1:
+.text:00401EE1 mov     edx, [ebp-234h]
+.text:00401EE7 cmp     edx, [ebp-218h]                 ; counter
+.text:00401EED jnb     loc_401FA7
+.text:00401EF3 mov     eax, [ebp-4]
+.text:00401EF6 add     eax, [ebp-234h]
+.text:00401EFC mov     cl, [eax]
+.text:00401EFE mov     [ebp-236h], cl
+.text:00401F04 push    ecx
+.text:00401F05 nop
+.text:00401F06 nop
+.text:00401F07 nop
+.text:00401F08 nop
+.text:00401F09 nop
+.text:00401F0A nop
+.text:00401F0B nop
+.text:00401F0C nop
+.text:00401F0D pop     ecx
+.text:00401F0E movzx   edx, byte ptr [ebp-236h]
+.text:00401F15 cmp     edx, 52h
+.text:00401F18 jnz     jmp_search_52
+{% endhighlight %}
+At this part, we arrive at the core of Morph. Morph contains many numbers of dead codes.
+{% highlight asm %}
+.text:004014F3 push    edx
+.text:004014F3 ; 
+.text:004014F4 db 0CCh ; ¦
+.text:004014F5 db 0CCh ; ¦
+......
+.text:00401511 db 0CCh ; ¦
+.text:00401512 ; 
+.text:00401512 pop     edx
+{% endhighlight %}
+The dead code begins with 'push edx' and ends with 'pop edx'. Once Morph have found a chunck of dead code, it will call the decode function at address 0x401170. This function call _rand to generate random number. srand is called previously with time() as parameter. There is no vuln for random generation. One random number is used to alter decoded code.
+{% highlight asm %}
+call    _rand
+mov     ebx, eax
+and     ebx, 80000003h  ; %4
+{% endhighlight %}
+ebx contains random_number%4. The first byte of dead code is the effective address of ebx+50h. Only four values are possilbe: 50h -> push eax, 51h -> push ebx, 52h -> push ecx, 53h -> push edx. The last byte of dead codes is bl+ 58h that is pop eax, ebx, ecx, or edx. This is the very wise part of Morph, as its name indicates, even with correct password, it can have four different versions. I have a conclusion that wherever ebx(or bl) apprears, the decoded instructions must have something to do with eax, ebx, ecx, edx.
+{% highlight asm %}
+.text:004011A7 mov     esi, [esp+10h+code_offset] ; dead code offset
+.text:004011AB mov     edi, [esp+10h+pw_cp]   ;password
+.text:004011AF mov     ebp, [esp+10h+fnct_ptr]
+.text:004011B3 lea     edx, [ebx+50h]
+.text:004011B6 mov     [esi], dl
+
+.text:0040124D add     bl, 58h
+.text:00401253 mov     [esi+1Fh], bl
+{% endhighlight %}
+Then I've found another two decoded bytes using ebx for code alteration:
+{% highlight asm %}
+.text:00401200 mov     dl, [edi+5]
+.text:00401203 add     dl, dl
+.text:00401205 add     dl, bl
+.text:00401207 sub     dl, 38h
+.text:0040120A mov     [esi+0Fh], dl
+
+.text:00401243 mov     cl, [edi+5]
+.text:00401246 add     cl, cl
+.text:00401248 add     cl, bl
+.text:0040124A sub     cl, 30h
+.text:00401250 mov     [esi+1Eh], cl
+{% endhighlight %}
+[edi+5] is the 6th letter of the password. This must generate a pair of push and pop and I've password[5]='D'. When I go over these dead codes, some tips are left. 
+{% highlight asm %}
+.text:00401300 movzx   eax, byte ptr pw_cp+2
+.text:00401307 movzx   ecx, byte ptr pw_cp2+1
+.text:0040130E cmp     eax, ecx
+.text:00401310 jz      short loc_401317
+.text:00401312 call    error_exit
+{% endhighlight %}
+pw_cp and pw_cp2 are respectively the first and second word of password. So we can see that password[2] must be equal to password[5]. Great, now I know password[2]=password[5]='D'. Later I figure that we can know for sure that password[5]='D':
+{% highlight asm %}
+.text:004022A1 movzx   ecx, byte ptr pw_cp2+1
+.text:004022A8 cmp     ecx, 'D'
+.text:004022AB jz      short loc_4022B2
+.text:004022AD call    error_exit
+{% endhighlight %}
+There are other two direct tips here:
+{% highlight asm %}
+.text:0040136F movzx   eax, byte ptr pw_cp2
+.text:00401376 cmp     eax, 'O'
+.text:00401379 jz      short loc_401380
+.text:0040137B call    error_exit
+
+.text:004028CC ; 
+.text:004028CC pop     edx
+.text:004028CD movzx   ecx, byte ptr pw_cp+3
+.text:004028D4 cmp     ecx, 'M'
+.text:004028D7 jz      short loc_4028DE
+.text:004028D9 call    error_exit
+{% endhighlight %}
+We have password[4]='O' and password[3]='M'. If you enter a password ('??DMODE')that passes all above checks, the program will crash unless you have the correct password. There are still the first and second letter that are unknown. In the following loop, the process of decoding is random. At the left side, password[4]='O' is used and unpacked code can be dec eax, ebx, ecx or edx. At the right side, I suppose that it will have the reverse operation of dec, that is inc. So password[0]='G'. Until now there is only one letter left 'G?DMODE'. It didn't find out logically the second letter. However, the pattern 'G?DMODE' looks like 'GODMODE' and with a great chance, my guess was correct!
+<div class="separator" style="clear: both; text-align: center;"><a href="{{ "/img/blog/crackmes.de/morph/screenshot2.jpg" | prepend: site.baseurl }}" imageanchor="1" style="margin-left: 1em; margin-right: 1em;"><img border="0" src="{{ "/img/blog/crackmes.de/morph/screenshot2.jpg" | prepend: site.baseurl }}" /></a></div>  With the correct password, I figured out the trick of the second letter. This letter was used to generate the opcode 'CMP eax (ebx, ecx, or edx), 10h' whose size is three bytes. Finally one version of the decoded dead code is:
+{% highlight asm %}
+.text:00401FA7 push    edx
+.text:00401FA8 mov     edx, offset $LN26
+.text:00401FAD cmp     edx, 10h
+.text:00401FB0 jz      near ptr 8050B8h ; it never jmp
+.text:00401FB6 push    edx
+.text:00401FB7 inc     edx
+.text:00401FB8 inc     edx
+.text:00401FB9 inc     edx
+.text:00401FBA inc     edx
+.text:00401FBB inc     edx
+.text:00401FBC dec     edx
+.text:00401FBD inc     edx
+.text:00401FBE dec     edx
+.text:00401FBF dec     edx
+.text:00401FC0 dec     edx
+.text:00401FC1 inc     edx
+.text:00401FC2 inc     edx
+.text:00401FC3 inc     edx
+.text:00401FC4 inc     edx
+.text:00401FC5 pop     edx
+.text:00401FC6 pop     edx
+.text:00401FC7 push    eax
+{% endhighlight %}
+The register edx can be altered to eax, ebx or ecx. This crackme is very nicely and beautiful.
