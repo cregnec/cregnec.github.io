@@ -537,10 +537,8 @@ tableau [tab-opcodes].
   |0x00400bd0 |  et logique|
   |0x00400c20 |  ou logique|
   |0x00400c90 |  ou exclusif|
-  {: .class="table"}
+  {:class="table"}
 
-  : opcodes de la virtuelle machine
-[tab-opcodes]
 
 Comme toutes les modifications de mémoire doivent passer par les
 registres, une trace complète de registre pourrait dévoiler le mécanisme
