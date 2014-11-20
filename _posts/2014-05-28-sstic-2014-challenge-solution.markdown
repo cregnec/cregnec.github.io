@@ -80,7 +80,7 @@ fd010000 d3000000 05410000 a8adabba
 
 USB Protocol
 -------------
-I did not know great things about the USB protocol. After some searches on the Internet, it turned out that the trace was generated with the Linux Module *usbmon* [^1]. Thanks to this document, I could understand the trace now. Take the first line of the trace as an example:
+I did not know great things about the USB protocol. After some searches on the Internet, it turned out that the trace was generated with the Linux Module [usbmon](https://www.kernel.org/doc/Documentation/usb/usbmon.txt). Thanks to this document, I could understand the trace now. Take the first line of the trace as an example:
 
 {% highlight bash %}
 ffff8804ff109d80 1765779215 C Ii:2:005:1 0:8 8 = 00000000 00000000
@@ -96,7 +96,8 @@ ffff8804ff109d80 1765779215 C Ii:2:005:1 0:8 8 = 00000000 00000000
 | 00000000 00000000 | = data
 {% endhighlight %}
 
-I tried first to parse the USB trace with tool *usbmon-parser* [^2]. But it didn't help a lot.
+I tried first to parse the USB trace with tool [usbmon-parse]* (https://gitorious.org/usbmon-parser/usbmon-parser). But it didn't help a lot.
+
 The following is the results returned by *usemon-parser*:
 
 {% highlight bash %}
@@ -196,7 +197,7 @@ for line in lines:
 Android Debug Bridge (ADB) Protocol
 --------------------------------------
 
-I've found a very good documentation about ADB [^3]. 6 
+I've found a very good documentation about [ADB](http://blogs.kgsoft.co.uk/2013_03_15_prg.htm). 6 
 standard packets are defined in the ADB protocol.
 
 {% highlight c %}
@@ -378,13 +379,13 @@ Key to Flags:
 What tools I used for the second step?
 -------------------
 
--   qemu-aarch64 $2.0.50$ [^4]
+-   [qemu-aarch64 2.0.50](www.qemu.org)
 
--   gcc-linaro-aarch64-linux-gnu-gdb-4.8-2014.03 [^5]
+-   [gcc-linaro-aarch64-linux-gnu-gdb-4.8-2014.03](https://releases.linaro.org/latest/components/toolchain/binaries/)
 
--   IDA Pro $6.5$ [^6]
+-   [IDA Pro 6.5](https://www.hex-rays.com/products/ida/)
 
-The ARM64 instruction set manual [^7] was a useful tool too.  *It's important to noter that ARM instruction set does not support mov memomry, memomry.*  Thus, all memory operations must go through the registers. This feature allowed me to define my reversing strategy: trace all changes of interesting registers.
+The [ARM64 instruction set manual](http://board.flatassembler.net/download.php?id=5698) was a useful tool too.  *It's important to noter that ARM instruction set does not support mov memomry, memomry.*  Thus, all memory operations must go through the registers. This feature allowed me to define my reversing strategy: trace all changes of interesting registers.
 
 After open this file in IDA, I found that it was difficult to do a static analysis. So I used QEMU to trace its syscall.
 
@@ -468,7 +469,7 @@ I added the additional file *memelf.400000* in IDA, more functions has appeared.
 
 The virtual machine
 --------------------
-While debugging manually in GDB, I found a table that contained all instructions.
+While debugging Manually in GDB, I found a table that contained all instructions.
 
 {% highlight bash %}
 0x4000801360:  0x00400d9c     0x00000000     0x00400dac     0x00000000
@@ -1025,7 +1026,7 @@ The execution of *upload.py* displayed the firmware version and the number of CP
 *fw.hex*, hexadecimal of what?
 -----------------------------
 
-This file was indeed in format Intel Hex [^8]. The following is the example of the first line in *fw.hex*.
+This file was indeed in format [Intel Hex](http://en.wikipedia.org/wiki/Intel_HEX). The following is the example of the first line in *fw.hex*.
 
 {% highlight bash %}
 : 10 0000 00 2100111B2001108CC0D2201010002101 F2
@@ -1741,19 +1742,3 @@ opcode not known, 0xA7 0xDE
 0x52: js 0x84
 0xD8: syscall exit
 {% endhighlight %}
-
-[^1]: <https://www.kernel.org/doc/Documentation/usb/usbmon.txt>
-
-[^2]: git://gitorious.org/usbmon-parser/usbmon-parser.git
-
-[^3]: <http://blogs.kgsoft.co.uk/2013_03_15_prg.htm>
-
-[^4]: [www.qemu.org/](www.qemu.org/)
-
-[^5]: <https://releases.linaro.org/latest/components/toolchain/binaries/>
-
-[^6]: <https://www.hex-rays.com/products/ida/>
-
-[^7]: <http://board.flatassembler.net/download.php?id=5698>
-
-[^8]: <http://en.wikipedia.org/wiki/Intel_HEX>
