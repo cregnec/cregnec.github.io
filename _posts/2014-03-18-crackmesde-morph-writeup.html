@@ -3,7 +3,7 @@ layout: post
 title: Crackmes.de Morph writeup
 date: '2014-03-18T02:41:00.001-07:00'
 tags: reverse engineering, crackmes.de, win32
-category: reverse
+category: blog
 description: A few days ago, I did the Morph crackme of <a href="http://crackmes.de/">Crackmes.de</a>. As its name indicates, the binary is polymorphic. It reads a password and changes itself upon the password entered. If there password is incorrect, it usually has a segmentation fault because the generated instructions would not be valid. In order to find the right password, I had to dig into the intel x86 assembly instructions.
 ---
 
