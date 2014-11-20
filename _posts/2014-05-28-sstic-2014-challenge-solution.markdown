@@ -3,7 +3,7 @@ layout: post
 title: 2014 SSTIC challenge solution
 description: >
     SSTIC is a famous French security conference. Each year the organizer proposes a security challenge for anyone who is interested on security. This year it was a reverse engineering task. The goal of this challenge was to find an email address such as ... @ challenge.sstic.org from a USB trace. I've spent almost two weeks on this challenge. Learned so many things: ADB (USB) forensics, ARM64 instruction set, another VM reverse engineering, Intel Hex, embedded system exploit.
-
+category: blog
 ---
 
 Contents
@@ -973,32 +973,8 @@ s.close()
 $ cat fw.hex
 :100000002100111B2001108CC0D2201010002101F2
 :10001000117C2200120FC03C20101000210111B2EF
-:1000200022001229C07620111000C0B4C0B65A00B8
-:1000300021001124200110B2C0BE51AAC10A210022
-:100040001129200110B2C09421001109200110A82B
-:10005000C08AB084580059115A2230002101110081
-:10006000220012017310A006F0806002B3F6300087
-:10007000510022001201230013FFE4806114940A4E
-:10008000844A7404E49461145113E480E581F5809A
-:10009000F48160027430AFE2D00FB002B0005800BB
-:1000A00059115A22300051005200230013FF24003E
-:1000B000140160245003E58061155113E580E68149
-:1000C000F680F58165565553E585E6923665F692DC
-:1000D000622475A2A7DCD00FC801B3FCC802D00F00
-:1000E000C803D00F2100110122011200E301711198
-:1000F000E40184424034D00F3222230013013444FF
-:10010000E4025444A0087441A0066003B3F0300038
-:10011000D00F241014002500150F2600160A270002
-:100120001701921452257326A80623001337B00432
-:100130002300133062323333F20360077247A006A4
-:1001400063579443B3DCD00F242714102500150AFD
-:100150003666270017017007600792148324711315
-:100160009445280018203333F8034662A3EA280098
-:1001700018306882F8035444A7DED00F59656168CF
-:10018000526973634973476F6F6421004669726DEA
-:10019000776172652076312E33332E372073746188
-:1001A0007274696E672E0A0048616C74696E672EFE
-:1001B0000A00942B506FAE0CBB1F39B4D8CA05FD92
+:10006000220012017316A006F0806002B3F6300087
+...
 :1001C0008A0F5AE8B5D40D6CE86AA6ACC492F8F16F
 :0C01D00072A77CE6D5A5680921D4410087
 :00000001FF           
@@ -1164,7 +1140,7 @@ By sending manually different values and combining the returned register values,
 0xA0 offset -> jz offset
 0xD0 0F -> ret
 0xC8 0x01 -> syscall exit
-0xC8 0x02 -> syscall write
+0xC8 0x02 -> syscall print
 0xC8 0x03 -> syscall write cpu cycles to [r0]
 {% endhighlight %}
 
@@ -1199,9 +1175,13 @@ def disassembly(binaries):
     opcodes[str(0xc0)] = 'call 0x%X'
     opcodes[str(0xc1)] = 'call 0x100+0x%%X' 
     opcodes[str(0xb3)] = 'jnz 0x%X'
+    opcodes[str(0xa7)] = 'jnz 0x%X'
     opcodes[str(0xb0)] = 'js 0x%X'
     opcodes[str(0xaf)] = 'jns 0x%X'
+    opcodes[str(0xac)] = 'jns 0x%X'
     opcodes[str(0xa0)] = 'jz 0x%X'
+    opcodes[str(0xa3)] = 'jz 0x%X'
+    opcodes[str(0xa8)] = 'js 0x%X'
     opcodes[str(0xd0)] = 'ret'
     opcodes[str(0xc8)] = 'syscall %s'
 
@@ -1280,8 +1260,9 @@ The code in *fw.hex* served only as an example of usage. It did not contain any 
 Can we read the secret memory area with *print*?
 -------------------------------------------------
 
-Intuitively, this approach appeared the easiest way to retrieve the secret memory area. But unfortunately it could display all memory except the secret area. In fact , the following code in kernel prevented all *print* on the secret memory area and displayed an error message *[ERROR] print unallowed memory*. This approach was not feasible.
-{% highlight asm %}
+Intuitively, this approach appeared the easiest way to retrieve the secret memory area. But unfortunately it could display all memory except the secret area. In fact , the following code in kernel prevented all *print* on the secret memory area and displayed an error message *[ERROR] print unallowed memory*. This approach was not feasible. The kernel checked for each address if it was outside the secret memory (< 0xf000 or > 0xfc00), as shown in line 16, 19 and 20. If the asked address was in the secret area, print operation would be stopped.
+{% highlight asm linenos %}
+...
 // print, read memory
 0xE6: r14 = r0 & r0   //r14=0xfe86
 0xE8: mov h13 0xFC
@@ -1295,27 +1276,65 @@ Intuitively, this approach appeared the easiest way to retrieve the secret memor
 0xF8: r11 = r11 ^ r11 //r11=0
 0xFA: r1 = r1 & r1    //r1=0xe
 0xFC: jz 0x1A
-0xFE: r9 = r14 + r8   //r8 = size
-0x100: r9 = r9 - r12  //if r9 > 0xf000
-opcode not known, 0xA8 0x8
+0xFE: r9 = r14 + r8   //r8=count
+0x100: r9 = r9 - r12  
+0x102: js 0x8         //if r9 < 0xf000, jmp 0x10c
 0x104: r9 = r14 + r8
-0x106: r9 = r9 - r13  //if r9 < 0xfc00
-opcode not known, 0xAC 0x2
-0x10A: js 0xE
-0x10C: r9 = r9 ^ r9
-0x10E: r9 = [r14+r8]
-0x110: [r13:r11] = r9
-0x112: r8 = r8 + r10
-0x114: r1 = r1 - r10
+0x106: r9 = r9 - r13  
+0x108: jns 0x2        //if r9 > 0xfc00, jmp 0x10c
+0x10A: js 0xE         //if r9 < 0xfc00, jmp 0x11A
+0x10C: r9 = r9 ^ r9   //r9=0
+0x10E: r9 = [r14+r8]  //load char
+0x110: [r13:r11] = r9 //store char
+0x112: r8 = r8 + r10  //r8+=1
+0x114: r1 = r1 - r10  //r-=1
 0x116: jnz 0xE2
 0x118: ret 0xF
+...
 {% endhighlight %}
 
 How to access the secret memory area?
 -------------------------------------
 
-Direct access to the secret area, generated an error *Memory access violation*. Since I could dump the micro-controller's kernel memory area. 
+Direct access to the secret area, generated an error *Memory access violation*. I needed to understand how its kernel worked. Since I could dump the micro-controller's kernel memory area, I just used the previous disassembler on the kernel code. The following code shows the interesting kernel entry point. It first checked whether the syscall number was one of 1, 2, 3 (line 1 to 6). If not, it would either quit or return *undefined system call* error. Then it calculated the syscall offset (#syscal - 1) \* 2 (line 8, 9, 10). And it added 0xF000 to this offset (line 12, 13) that was indeed the pointer to the syscall function. Finally, it called another function to load the value from the syscall function pointer (line 14, 23 to 32) and jump to it (line 15).
 
+{% highlight asm linenos %}
+0x0: r0 = r0 & r0
+0x2: jz 0x6C       //if r0 ==0, jz 0x70($PC+0x6c+0x2), system reset
+0x4: mov h1 0x0
+0x6: mov l1 0x3    //r1=3
+0x8: r2 = r1 - r0  //r2=r1-r2
+0xA: js 0x12       //if r1>3, js 0x1E($PC+0x12+0x2), undifined system call
+0xC: mov h2 0x0
+0xE: mov l2 0x2    //r2=2, (r1=1,2,3)
+0x10: r1 = r0 * r2 //r1=r0*2
+0x12: r1 = r1 - r2 //r1=(r0-1)*2
+0x14: mov h0 0xF0
+0x16: mov l0 0x0   //r0=0xF000
+0x18: r0 = r0 + r1 //r0=0xF000+r1
+0x1A: call 0x94    //call 0xB0($PC+0x94+0x2), r0=[r0]
+0x1C: ret 0x0      //ret r0
+; undifined system call
+0x1E: mov h1 0x0
+0x20: mov l1 0x2B  //r1=0x2b, size
+0x22: mov h0 0xFE 
+0x24: mov l0 0x5A  //r0=0xFE5A, string pointer
+...
+;
+0xB0: mov h1 0x0   //r1=0x1
+0xB2: mov l1 0x1
+0xB4: mov h2 0x1
+0xB6: mov l2 0x0   //r2=0x100
+0xB8: r3 = [r0+r1] //load [r0+1]
+0xBA: r1 = r1 - r1
+0xBC: r4 = [r0+r1] //load [r0]
+0xBE: r4 = r4 * r2 //r4=[r0]*0x100
+0xC0: r0 = r3 ^ r4 //r0=([r0]<<8)^[r0+1]
+0xC2: ret 0xF      //ret r15
+...
+{% endhighlight %}
+
+So there was a jump table (size 3) at the address 0xF000. Remember that there was also a syscall that allowed to write the nember of CPU cycles used to an aribitary address. The solution could be overwrite one syscall function pointer and call again that syscall. The following paragraph presents the result returned by the remote micro-controller. The code execution was still in kernel mode and there was an exception at address 0x5868. Because I've overwritten the syscall function pointer by the number of CPU cycles used (0x5686) and there was no code at this address.
 
 {% highlight asm %}
 ---------------------------------------------
@@ -1335,7 +1354,8 @@ System reset.
 CLOSING: Invalid instruction.
 {% endhighlight %}
 
-The following Python code requires offset to the address 0xF000
+Now I could read the secret memory area with the following exploit: overwirte one syscall function pointer, write my read memory code at the overwritten address and call again that syscall.
+The following Python code takes an offset to the address 0xF000 as an augment
 and allows to read 5 bytes per time.
 
 {% highlight python linenos %}
@@ -1394,53 +1414,10 @@ with open('fw.hex', 'wt') as output:
 	cmd.nb_bytes = len(cmd.payload)
 	output.write(cmd.gencmd())
 	output.write(cmd.getend(1))
-with open('payload', 'wb') as output:
-	output.write(payload)
+{% endhighlight %}
 
-
-FIRMWARE = "fw.hex"
-
-#print("---------------------------------------------")
-#print("----- Microcontroller firmware uploader -----")
-#print("---------------------------------------------")
-#print()
-
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect(('178.33.105.197', 10101))
-
-#print(":: Serial port connected.")
-#print(":: Uploading firmware... ", end='')
-
-[ s.send(line) for line in open(FIRMWARE, 'rb') ]
-
-#print("done.")
-#print()
-
-resp = b''
-while True:
-	ready, _, _ = select.select([s], [], [], 10)
-	if ready:
-		try:
-			data = s.recv(32)
-		except:
-			break
-		if not data:
-			break
-		resp += data
-	else:
-		break 
-
-
-r8 = str(resp, 'utf-8').split('r8:')[1][2:4]
-r9 = str(resp, 'utf-8').split('r9:')[1][2:4]
-r10 = str(resp, 'utf-8').split('r10:')[1][2:4]
-r11 = str(resp, 'utf-8').split('r11:')[1][2:4]
-r12 = str(resp, 'utf-8').split('r12:')[1][2:4]
-
-bytes_5 = "%s%s%s%s%s"%(r8,r9,r10,r11,r12)
-print(bytes.fromhex(bytes_5).decode("utf-8"))
-s.close()
-
+After tried some offset values, I finally got the email address *66a65dc050ec0c84cf1dd5b3bbb75c8c@challenge.sstic.org*!
+{% highlight bash %}
 $ for i in {560..570}; do python exploit.py $i; done
 <66a6
 5dc05
@@ -1454,7 +1431,6 @@ nge.s
 stic.
 org>
 {% endhighlight %}
-Thus I had the email address: *66a65dc050ec0c84cf1dd5b3bbb75c8c@challenge.sstic.org*.
 
 Appendix
 ===================================
@@ -1621,7 +1597,7 @@ cant determine nb of loop, jmp out
 0xCE: [r9:r2] = r6 //[0x1B2+r0]=r5^[0x1B2+r0]
 0xD0: r2 = r2 + r4 //r2 += 1
 0xD2: r5 = r10 - r2 //r5=0x29-r2
-opcode not known, 0xA7 0xDC
+0xD4  jnz 0xDC
 0xD6: ret 0xF
 0x26: mov h0 0x11 
 0x28: mov l0 0x0 //r0=0x1100
@@ -1703,13 +1679,13 @@ cant determine nb of loop, jmp out
 0x166: r3 = r3 ^ r3 //r3=0
 0x168: [r0:r3] = r8 //
 0x16A: r6 = r6 ^ r2
-opcode not known, 0xA3 0xEA
+0x16C  jz 0xEA
 0x16E: mov h8 0x0
 0x170: mov l8 0x30
 0x172: r8 = r8 + r2
 0x174: [r0:r3] = r8
 0x176: r4 = r4 & r4
-opcode not known, 0xA7 0xDE
+0x178  jnz 0xDE
 0x17A: ret 0xF
 0x3E: mov h1 0x0
 0x40: mov l1 0x29
