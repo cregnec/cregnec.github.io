@@ -379,7 +379,7 @@ Key to Flags:
 What tools I used for the second step?
 -------------------
 
--   [qemu-aarch64 2.0.50](www.qemu.org)
+-   [qemu-aarch64 2.0.50](http://www.qemu.org)
 
 -   [gcc-linaro-aarch64-linux-gnu-gdb-4.8-2014.03](https://releases.linaro.org/latest/components/toolchain/binaries/)
 
