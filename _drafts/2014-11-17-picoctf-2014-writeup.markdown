@@ -631,4 +631,217 @@ So the final exploit: first read the *memcmp's* address (line 16), the used the 
 
 Baleful
 =======
+
 *This program seems to be rather delightfully twisted! Can you get it to accept a password? We need it to get access to some Daedalus Corp files.*
+
+Finally a reverse engineering challenge. A few checks revealed that this binary was packed with *upx*.
+
+{% highlight bash %}
+$ strings -a baleful
+...
+$Info: This file is packed with the UPX executable packer http://upx.sf.net $
+$Id: UPX 3.91 Copyright (C) 1996-2013 the UPX Team. All Rights Reserved. $
+...
+$ upx -d baleful -o baleful.unpacked
+                       Ultimate Packer for eXecutables
+                          Copyright (C) 1996 - 2013
+UPX 3.91        Markus Oberhumer, Laszlo Molnar & John Reiser   Sep 30th 2013
+
+        File size         Ratio      Format      Name
+   --------------------   ------   -----------   -----------
+    148104 <-      6752    4.56%  netbsd/elf386  baleful.unpacked
+
+Unpacked 1 file.
+{% endhighlight %}
+
+I've used *upx* to unpack it and there was no error. Then I loaded this binary in IDA.
+
+{% highlight asm linenos %}
+.text:08049C82 ; int __cdecl main(int argc, const char **argv, const char **envp)
+.text:08049C82 main            proc near
+.text:08049C82                 push    ebp
+.text:08049C83                 mov     ebp, esp
+.text:08049C85                 push    edi
+.text:08049C86                 push    ebx
+.text:08049C87                 and     esp, 0FFFFFFF0h
+.text:08049C8A                 sub     esp, 90h
+.text:08049C90                 mov     eax, large gs:14h
+.text:08049C96                 mov     [esp+8Ch], eax
+.text:08049C9D                 xor     eax, eax
+.text:08049C9F                 lea     eax, [esp+10h]
+.text:08049CA3                 mov     ebx, eax
+.text:08049CA5                 mov     eax, 0
+.text:08049CAA                 mov     edx, 1Fh
+.text:08049CAF                 mov     edi, ebx        ; esp+0x10
+.text:08049CB1                 mov     ecx, edx        ; count 0x1f
+.text:08049CB3                 rep stosd
+.text:08049CB5                 lea     eax, [esp+10h]
+.text:08049CB9                 mov     [esp], eax
+.text:08049CBC                 call    vm_start
+.text:08049CC1                 mov     eax, 0
+.text:08049CC6                 mov     edx, [esp+8Ch]
+.text:08049CCD                 xor     edx, large gs:14h
+.text:08049CD4                 jz      short loc_8049CDB
+.text:08049CD6                 call    ___stack_chk_fail
+.text:08049CDB loc_8049CDB:                            
+.text:08049CDB                 lea     esp, [ebp-8]
+.text:08049CDE                 pop     ebx
+.text:08049CDF                 pop     edi
+.text:08049CE0                 pop     ebp
+.text:08049CE1                 retn
+.text:08049CE1 main            endp
+{% endhighlight %}
+
+The main function was fairly simple. It first initialized a array of size 0x20 that began at address *esp+0x10* to zero (line 12 to 18). Then it passed this array as argument (line 19 to 20) to function *vm_start* (line 21). I named it *vm_start* because it actually was a virtual machine. Let's dissect this function little by little.
+
+{% highlight asm linenos %}
+.text:0804898B                 push    ebp
+.text:0804898C                 mov     ebp, esp
+.text:0804898E                 sub     esp, 0C8h
+.text:08048994                 mov     [ebp+offset], 1000h
+.text:0804899B                 cmp     [ebp+arg_0], 0
+.text:0804899F                 jz      short loc_80489CB
+.text:080489A1                 mov     [ebp+count], 0
+.text:080489A8                 jmp     short init_registers
+{% endhighlight %}
+
+It first created a offset with value 0x1000 (line 4). Then it used previously initialized array to initialize its registers (line 5 to 9). After initialization, I found the main switch of this virtual machine.
+
+{% highlight asm linenos %}
+.text:08049C67 loc_8049C67:                            
+.text:08049C67                 mov     eax, [ebp+offset]       ;0x1000
+.text:08049C6A                 add     eax, 804C0C0h
+.text:08049C6F                 movzx   eax, byte ptr [eax]
+.text:08049C72                 cmp     al, 1Dh                 ;exit opcode
+.text:08049C74                 jnz     not_exit
+.text:08049C7A                 mov     eax, [ebp+reg_table]
+.text:08049C80
+.text:08049C80 locret_8049C80:                         
+.text:08049C80                 leave
+.text:08049C81                 retn
+.text:08049C81 vm_start        endp
+
+.text:08048A2D not_exit:                               
+.text:08048A2D                 mov     eax, [ebp+offset]
+.text:08048A30                 add     eax, 804C0C0h
+.text:08048A35                 movzx   eax, byte ptr [eax]
+.text:08048A38                 movsx   eax, al
+.text:08048A3B                 cmp     eax, 20h ;      ; switch 33 cases
+.text:08048A3E                 ja      addOffset1      ; jumptable 08048A4B default case
+.text:08048A44                 mov     eax, ds:off_8049DD4[eax*4]
+.text:08048A4B                 jmp     eax
+{% endhighlight %}
+
+The virtual machine's memory was located at address 0x0804C0C0 + 0x1000 (line 1, 2). Its opcode size was 8 bits because each time it read one byte from its memory (line 3). Then it verified if the opcode's value was 0x1D, that  was *exit* (line 4). If not (line 5),  it continued to check if the opcode's value was bigger than 0x20 (line 14 to 19), which was the unknown opcode. If the opcode's value was smaller than 0x20, it would fetch it's address (line 21) and jump to it (line 22). Therefore, I knew that this virtual machine had 0x20 opcodes. In order to understand the virtual machine, I had to analyze all its opcodes. Let's take an *add* instruction as an example.
+
+{% highlight asm linenos %}
+.text:08048A8F add:
+.text:08048A8F                 mov     eax, [ebp+offset] ; jumptable 08048A4B case 2
+.text:08048A92                 add     eax, 1
+.text:08048A95                 movzx   eax, vm_mem[eax]
+.text:08048A9C                 movsx   eax, al
+.text:08048A9F                 mov     [ebp+arg_flag], eax
+.text:08048AA2                 mov     eax, [ebp+offset]
+.text:08048AA5                 add     eax, 2
+.text:08048AA8                 movzx   eax, vm_mem[eax]
+.text:08048AAF                 movsx   eax, al
+.text:08048AB2                 mov     [ebp+reg_index], eax ; return value register index
+.text:08048AB5                 mov     eax, [ebp+arg_flag]
+.text:08048AB8                 cmp     eax, 1
+.text:08048ABB                 jz      short loc_8048B1B
+.text:08048ABD                 cmp     eax, 1
+.text:08048AC0                 jg      short loc_8048ACB
+.text:08048AC2                 test    eax, eax
+.text:08048AC4                 jz      short loc_8048ADE
+.text:08048AC6                 jmp     op_add
+
+.text:08048ACB loc_8048ACB:
+.text:08048ACB                 cmp     eax, 2
+.text:08048ACE                 jz      short loc_8048B4B
+.text:08048AD0                 cmp     eax, 4
+.text:08048AD3                 jz      loc_8048B7B
+.text:08048AD9                 jmp     op_add
+
+.text:08048ADE loc_8048ADE:
+.text:08048ADE                 mov     eax, [ebp+offset]
+.text:08048AE1                 add     eax, 3
+.text:08048AE4                 movzx   eax, vm_mem[eax]
+.text:08048AEB                 movsx   eax, al
+.text:08048AEE                 mov     eax, [ebp+eax*4+reg_table]
+.text:08048AF5                 mov     [ebp+operand1], eax
+.text:08048AF8                 mov     eax, [ebp+offset]
+.text:08048AFB                 add     eax, 4
+.text:08048AFE                 movzx   eax, vm_mem[eax]
+.text:08048B05                 movsx   eax, al
+.text:08048B08                 mov     eax, [ebp+eax*4+reg_table]
+.text:08048B0F                 mov     [ebp+operand2], eax
+.text:08048B12                 add     [ebp+offset], 5
+.text:08048B16                 jmp     op_add
+{% endhighlight %} 
+
+Let's look at the first basic block at *0x08048A8F*. It read the next byte from the virtual machine's memory (line 2 to 6). This byte was used as a flag to indicate the operands used by the add operation. Then it read another byte that was the register index used to store the return value (line 7 to 11). Next, it compared if the operand flag was 0 (line 17), 1 (line 13, 14), 2 (line 22, 23), 4 (line 24, 25). If none of these values matched, it would jump to *0x08048ADE*. *loc_8048ADE* would read two bytes and used them as register indexes (line 29 to 33 and line 35 to 39). Then it loaded the correspondent registers' values as the operands of the *add* instruction (line 33, 34 and line 39, 40). Next, let's look at other possibilities of the add instruction's operands.
+
+{% highlight asm linenos %}
+.text:08048B1B loc_8048B1B:    ;arg_flag=1
+.text:08048B1B                 mov     eax, [ebp+offset]
+.text:08048B1E                 add     eax, 3
+.text:08048B21                 movzx   eax, vm_mem[eax]
+.text:08048B28                 movsx   eax, al
+.text:08048B2B                 mov     eax, [ebp+eax*4+reg_table]
+.text:08048B32                 mov     [ebp+operand1], eax
+.text:08048B35                 mov     eax, [ebp+offset]
+.text:08048B38                 add     eax, 4
+.text:08048B3B                 add     eax, 804C0C0h
+.text:08048B40                 mov     eax, [eax]
+.text:08048B42                 mov     [ebp+operand2], eax
+.text:08048B45                 add     [ebp+offset], 8
+.text:08048B49                 jmp     short op_add
+
+.text:08048B4B loc_8048B4B:    ;arg_flag=2
+.text:08048B4B                 mov     eax, [ebp+offset]
+.text:08048B4E                 add     eax, 3
+.text:08048B51                 add     eax, 804C0C0h
+.text:08048B56                 mov     eax, [eax]
+.text:08048B58                 mov     [ebp+operand1], eax
+.text:08048B5B                 mov     eax, [ebp+offset]
+.text:08048B5E                 add     eax, 7
+.text:08048B61                 movzx   eax, vm_mem[eax]
+.text:08048B68                 movsx   eax, al
+.text:08048B6B                 mov     eax, [ebp+eax*4+reg_table]
+.text:08048B72                 mov     [ebp+operand2], eax
+.text:08048B75                 add     [ebp+offset], 8
+.text:08048B79                 jmp     short op_add
+
+.text:08048B7B loc_8048B7B:    ;arg_flag=4
+.text:08048B7B                 mov     eax, [ebp+offset]
+.text:08048B7E                 add     eax, 3
+.text:08048B81                 add     eax, 804C0C0h
+.text:08048B86                 mov     eax, [eax]
+.text:08048B88                 mov     [ebp+operand1], eax
+.text:08048B8B                 mov     eax, [ebp+offset]
+.text:08048B8E                 add     eax, 7
+.text:08048B91                 add     eax, 804C0C0h
+.text:08048B96                 mov     eax, [eax]
+.text:08048B98                 mov     [ebp+operand2], eax
+.text:08048B9B                 add     [ebp+offset], 0Bh
+.text:08048B9F                 nop
+{% endhighlight %}
+
+While the flag of operandd was 1 (*loc_8048B1B*), it read one byte as the register index (line 2 to 7) and an four bytes integer (line 8  to 12) so that the *add* operation would use one register and an integer as operands. While the flag of operand was 2 (*loc_8048B4B*), it first read a four bytes integer (line 17 to 21) and another one byte as the register index (line 22 to 27). While the flag of operand was 4, it read two four-bytes integers (line 32 to 36 and line 37 to 41) as the *add* instruction's operands.
+
+Finally, let's check the basic block that performed the *add* instruction.
+
+{% highlight asm linenos %}
+.text:08048BA0 op_add:
+.text:08048BA0                 mov     eax, [ebp+operand2]
+.text:08048BA3                 mov     edx, [ebp+operand1]
+.text:08048BA6                 add     edx, eax
+.text:08048BA8                 mov     eax, [ebp+reg_index]
+.text:08048BAB                 mov     [ebp+eax*4+reg_table], edx
+.text:08048BB2                 mov     eax, [ebp+reg_index]
+.text:08048BB5                 mov     eax, [ebp+eax*4+reg_table]
+.text:08048BBC                 mov     [ebp+ret_value], eax
+.text:08048BBF                 jmp     loc_8049C67
+{% endhighlight %}
+
+This block just did an *add* operation on previously loaded operands (line 2 to 4) and store the return value in a register (line 5, 6). Then it jumped back to the main switch (line 10). So the above analysis was only the *add* instruction. In order to understand all others instructions, I used the same method and I will not repeat it here.
