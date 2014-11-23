@@ -1,7 +1,7 @@
 ---
 layout: post
 title: My solution for You like Python, security challenge and traveling?
-tags: reverse engineering, python, quarkslab
+tags: reverse python quarkslab
 category: blog
 description:
     In September 2014, Quarkslab launched a Python challenge. I like pretty much python so I tried it. The challenge had two steps, a highly nested python lambda function and a custom python interpreter." By reversing the lambda function, I got the link for downloading the custom python interpreter. The second step is more interesting that required to reverse the obfuscated python opcodes.I learned much about python internals.

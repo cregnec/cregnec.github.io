@@ -1,6 +1,7 @@
 ---
 layout: post
 title: 2014 SSTIC challenge solution
+tags: sstic reverse
 description: >
     SSTIC is a famous French security conference. Each year the organizer proposes a security challenge for anyone who is interested on security. This year it was a reverse engineering task. The goal of this challenge was to find an email address such as ... @ challenge.sstic.org from a USB trace. I've spent almost two weeks on this challenge. Learned so many things: ADB (USB) forensics, ARM64 instruction set, another VM reverse engineering, Intel Hex, embedded system exploit.
 category: blog
