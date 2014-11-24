@@ -3,6 +3,7 @@ layout: post
 title: picoctf 2014 writeup
 category: blog
 tags: ctf writeup reverse exploit
+description: picoCTF is a computer security game targeted at middle and high school students. Never mind, I'm not a high school student, but I still did this ctf with my friends just for fun. Most of the challenges were straightforward except the last level ones. This ctf was designed for learning so that there was a hint for each challenge. I did four of them, three binary exploit (Nevernote, CrudeCrypt, Fancy Cache) and one reverse engineering (Baleful).
 ---
 
 Contents
@@ -518,7 +519,7 @@ secret string address is 0x08048bc8
 Congratulations! Looks like you figured out how to read memory. This can can be a useful tool for defeating ASLR :-) Head over to https://picoctf.com/problem-static/binary/fancy_cache/next_steps.html for some hints on how to go from what you have to a shell!
 {% endhighlight %}
 
-I retrieved the *keSecretString* variable address (line 1, 2) because I wanted to get back this secret information. Then I readed the pointer address to this secret string (line 6 to 9) and the secret string (line 11 to 13). And here came the third hint. It explained the ret-to-libc technique (check above link for more information). At this step, I could read arbitary memory. In order to use this technique, I would need to be able to write to arbitary memory. To do this, I used the same bug and replace the last *cache_get* by *cache_set*.
+I retrieved the *keSecretString* variable address (line 1, 2) because I wanted to get back this secret information. Then I read the pointer address to this secret string (line 6 to 9) and the secret string (line 11 to 13). And here came the third hint. It explained the ret-to-libc technique (check above link for more information). At this step, I could read arbitrary memory. In order to use this technique, I would need to be able to write to arbitrary memory. To do this, I used the same bug and replace the last *cache_get* by *cache_set*.
 
 {% highlight python linenos %}
 def write_mem(target, value):
@@ -740,13 +741,13 @@ The virtual machine's memory was located at address 0x0804C0C0 + 0x1000 (line 1,
 .text:08048A92                 add     eax, 1
 .text:08048A95                 movzx   eax, vm_mem[eax]
 .text:08048A9C                 movsx   eax, al
-.text:08048A9F                 mov     [ebp+arg_flag], eax
+.text:08048A9F                 mov     [ebp+op_flag], eax
 .text:08048AA2                 mov     eax, [ebp+offset]
 .text:08048AA5                 add     eax, 2
 .text:08048AA8                 movzx   eax, vm_mem[eax]
 .text:08048AAF                 movsx   eax, al
 .text:08048AB2                 mov     [ebp+reg_index], eax ; return value register index
-.text:08048AB5                 mov     eax, [ebp+arg_flag]
+.text:08048AB5                 mov     eax, [ebp+op_flag]
 .text:08048AB8                 cmp     eax, 1
 .text:08048ABB                 jz      short loc_8048B1B
 .text:08048ABD                 cmp     eax, 1
@@ -782,7 +783,7 @@ The virtual machine's memory was located at address 0x0804C0C0 + 0x1000 (line 1,
 Let's look at the first basic block at *0x08048A8F*. It read the next byte from the virtual machine's memory (line 2 to 6). This byte was used as a flag to indicate the operands used by the add operation. Then it read another byte that was the register index used to store the return value (line 7 to 11). Next, it compared if the operand flag was 0 (line 17), 1 (line 13, 14), 2 (line 22, 23), 4 (line 24, 25). If none of these values matched, it would jump to *0x08048ADE*. *loc_8048ADE* would read two bytes and used them as register indexes (line 29 to 33 and line 35 to 39). Then it loaded the correspondent registers' values as the operands of the *add* instruction (line 33, 34 and line 39, 40). Next, let's look at other possibilities of the add instruction's operands.
 
 {% highlight asm linenos %}
-.text:08048B1B loc_8048B1B:    ;arg_flag=1
+.text:08048B1B loc_8048B1B:    ;op_flag=1
 .text:08048B1B                 mov     eax, [ebp+offset]
 .text:08048B1E                 add     eax, 3
 .text:08048B21                 movzx   eax, vm_mem[eax]
@@ -797,7 +798,7 @@ Let's look at the first basic block at *0x08048A8F*. It read the next byte from 
 .text:08048B45                 add     [ebp+offset], 8
 .text:08048B49                 jmp     short op_add
 
-.text:08048B4B loc_8048B4B:    ;arg_flag=2
+.text:08048B4B loc_8048B4B:    ;op_flag=2
 .text:08048B4B                 mov     eax, [ebp+offset]
 .text:08048B4E                 add     eax, 3
 .text:08048B51                 add     eax, 804C0C0h
@@ -812,7 +813,7 @@ Let's look at the first basic block at *0x08048A8F*. It read the next byte from 
 .text:08048B75                 add     [ebp+offset], 8
 .text:08048B79                 jmp     short op_add
 
-.text:08048B7B loc_8048B7B:    ;arg_flag=4
+.text:08048B7B loc_8048B7B:    ;op_flag=4
 .text:08048B7B                 mov     eax, [ebp+offset]
 .text:08048B7E                 add     eax, 3
 .text:08048B81                 add     eax, 804C0C0h
@@ -827,7 +828,7 @@ Let's look at the first basic block at *0x08048A8F*. It read the next byte from 
 .text:08048B9F                 nop
 {% endhighlight %}
 
-While the flag of operandd was 1 (*loc_8048B1B*), it read one byte as the register index (line 2 to 7) and an four bytes integer (line 8  to 12) so that the *add* operation would use one register and an integer as operands. While the flag of operand was 2 (*loc_8048B4B*), it first read a four bytes integer (line 17 to 21) and another one byte as the register index (line 22 to 27). While the flag of operand was 4, it read two four-bytes integers (line 32 to 36 and line 37 to 41) as the *add* instruction's operands.
+While the flag of operand was 1 (*loc_8048B1B*), it read one byte as the register index (line 2 to 7) and an four bytes integer (line 8  to 12) so that the *add* operation would use one register and an integer as operands. While the flag of operand was 2 (*loc_8048B4B*), it first read a four bytes integer (line 17 to 21) and another one byte as the register index (line 22 to 27). While the flag of operand was 4, it read two four-bytes integers (line 32 to 36 and line 37 to 41) as the *add* instruction's operands.
 
 Finally, let's check the basic block that performed the *add* instruction.
 
@@ -844,4 +845,127 @@ Finally, let's check the basic block that performed the *add* instruction.
 .text:08048BBF                 jmp     loc_8049C67
 {% endhighlight %}
 
-This block just did an *add* operation on previously loaded operands (line 2 to 4) and store the return value in a register (line 5, 6). Then it jumped back to the main switch (line 10). So the above analysis was only the *add* instruction. In order to understand all others instructions, I used the same method and I will not repeat it here.
+This block just did an *add* operation on previously loaded operands (line 2 to 4) and store the return value in a register (line 5, 6). Then it jumped back to the main switch (line 10). So the above analysis was only the *add* instruction. In order to understand the virtual machine, one should reverse other instructions. I will omit the analysis of other instructions because they were very similar. The following is the instruction encoding table.
+
+| Instruction | Encoding                                            |
+| ----------- | --------------------------------------------------- |
+| INCPC       | &lt;opcode>                                            |
+| RET         | &lt;opcode>                                            |
+| ADD         | &lt;opcode> &lt;flag> &lt;reg \| !> &lt;reg \| m32> &lt;reg \| m32>   |
+| SUB         | &lt;opcode> &lt;flag> &lt;reg \| !> &lt;reg \| m32> &lt;reg \| m32>   |
+| IMUL        | &lt;opcode> &lt;flag> &lt;reg> &lt;reg \| m32> &lt;reg \| m32>       |
+| XOR         | &lt;opcode> &lt;flag> &lt;reg> &lt;reg \| m32> &lt;reg \| m32>       |
+| AND         | &lt;opcode> &lt;flag> &lt;reg> &lt;reg \| m32> &lt;reg \| m32>       |
+| OR          | &lt;opcode> &lt;flag> &lt;reg> &lt;reg \| m32> &lt;reg \| m32>       |
+| SHL         | &lt;opcode> &lt;flag> &lt;reg> &lt;reg \| m32> &lt;reg \| m32>       |
+| SAR         | &lt;opcode> &lt;flag> &lt;reg> &lt;reg \| m32> &lt;reg \| m32>       |
+| IDIV        | &lt;opcode> &lt;flag> &lt;reg> &lt;reg> &lt;reg \| m32> &lt;reg \| m32> |
+| NEG         | &lt;opcode> &lt;reg> &lt;reg>                                |
+| NOT         | &lt;opcode> &lt;reg> &lt;reg>                                |
+| SETZ        | &lt;opcode> &lt;reg> &lt;reg>                                |
+| JMP         | &lt;opcode> &lt;m32>                                      |
+| JZ          | &lt;opcode> &lt;m32>                                      |
+| CALL        | &lt;opcode> &lt;m32>                                      |
+| JS          | &lt;opcode> &lt;m32>                                      |
+| JLE         | &lt;opcode> &lt;m32>                                      |
+| JG          | &lt;opcode> &lt;m32>                                      |
+| JNZ         | &lt;opcode> &lt;m32>                                      |
+| JNS         | &lt;opcode> &lt;m32>                                      |
+| MOV         | &lt;opcode> &lt;flag> &lt;reg \| [reg]> &lt;reg \| m32 \| [reg]>   |
+| INC         | &lt;opcode> &lt;reg>                                      |
+| DEC         | &lt;opcode> &lt;reg>                                      |
+| PUSH        | &lt;opcode> &lt;reg \| m32>                                |
+| POP         | &lt;opcode> &lt;reg>                                      |
+| IOFUNC      | &lt;opcode> &lt;m32>                                      |
+| EXIT        | &lt;opcode>                                            |
+{:class="table"}
+
+&lt;opcode>, &lt;flag, &lt;reg> were all one byte and &lt;m32> was 4 bytes.
+After have got the virtual machine's opcodes, I could disassembly its memory. I used IDA's processor module, check this [repository](https://github.com/cregnec/ida-processor-script) for more information.
+
+{% highlight asm linenos %}
+ROM:1BC0 main:
+ROM:1BC0                 PUSH           R8
+ROM:1BC3                 PUSH           R9
+ROM:1BC6                 PUSH           R10
+ROM:1BC9                 CALL           printEnterPassword
+ROM:1BCE                 MOV            R1, $1E
+ROM:1BD5                 MOV            R0, $4
+ROM:1BDC                 CALL           sub_1080
+ROM:1BE1                 MOV            R10, R0
+ROM:1BE5                 JMP            jmp_getchar_loop
+ROM:1BEA                 JMP            test0xA
+ROM:1BEF
+ROM:1BEF jmp_getchar_loop:
+ROM:1BEF                 MOV            R8, 0
+ROM:1BF6                 JMP            loc_1D66
+ROM:1BFB
+ROM:1BFB get30char:
+ROM:1BFB                 MOV            R29, R8
+ROM:1BFF                 IMUL           R29, $4
+ROM:1C07                 MOV            R0, R10
+ROM:1C0B                 ADD            R29, R0
+ROM:1C10                 MOV            R9, R29
+ROM:1C14                 CALL           getchar
+ROM:1C19                 MOV            R1, R0
+ROM:1C1D                 MOV            [R9], R1
+ROM:1C20                 MOV            R1, [R9]
+ROM:1C23                 MOV            R29, R1
+ROM:1C27                 MOV            R0, $A
+ROM:1C2E                 SUB            R29, R0
+ROM:1C32                 JZ             wrongPassword
+ROM:1C37                 JMP            incCounter
+
+ROM:1D5E incCounter:
+ROM:1D5E                 ADD            R8, 1
+ROM:1D66 loc_1D66:
+ROM:1D66                 MOV            R29, R8   ;R29=0
+ROM:1D6A                 MOV            R0, $1E   ;R0=30
+ROM:1D71                 SUB            R29, R0
+ROM:1D75                 JS             get30char
+ROM:1D7A
+ROM:1D7A test0xA:
+ROM:1D7A                 CALL           getchar
+ROM:1D7F                 MOV            R1, R0
+ROM:1D83                 MOV            R29, R1
+ROM:1D87                 MOV            R0, $A
+ROM:1D8E                 SUB            R29, R0
+ROM:1D92                 JNZ            wrongPassword
+ROM:1D97                 JMP            jmp_pass_check
+{% endhighlight %}
+
+The virtual machine read a password of size 30 (line 35 to 39). If the password's length was smaller than 30, it would display the wrong password message. The *pass_check* function did a lot of operations to generate the final check condition. However if we follow only the read operation of the password, the check condition was indeed relatively simple.
+
+{% highlight asm linenos %}
+ROM:181A                 XOR            R4, R3    ;R4=password[i]
+ROM:181F                 MOV            R29, R2
+ROM:1823                 IMUL           R29, $4
+ROM:182B                 MOV            R0, R8
+ROM:182F                 ADD            R29, R0
+ROM:1834                 MOV            R3, R29
+ROM:1838                 MOV            R3, [R3]
+ROM:183B                 MOV            R29, R4   ;R29=password[i]
+ROM:183F                 MOV            R0, R3
+ROM:1843                 SUB            R29, R0  
+ROM:1847                 JNZ            loc_1851
+ROM:184C                 JMP            loc_1858
+ROM:1851
+ROM:1851 loc_1851:
+ROM:1851                 MOV            R1, 1
+ROM:1858
+ROM:1858 loc_1858:
+ROM:1858                 ADD            R2, 1
+ROM:1860
+ROM:1860 loop_counter:
+ROM:1860                 MOV            R3, R1   ;R3=R1
+ROM:1864                 MOV            R29, R2
+ROM:1868                 MOV            R0, $1E
+ROM:186F                 SUB            R29, R0
+ROM:1873                 JS             loc_17D9
+ROM:1878
+ROM:1878 loc_1878:
+ROM:1878                 AND            R3, R3
+ROM:187C                 JNZ            wrongPassword
+{% endhighlight %}
+
+Each character of the password was xored with some value (line 1) and then the result of xor operation was subtracted with another value in memory (line 7 to 10). If the result of subtraction was not zero, R1 would be set to 1 (line 11, 14, 15). At the end of the loop, if the value of R1 was not zero, the wrong password message would be displayed (line 20 to 29). So, just set breakpoints at XOR and SUB functions in GDB and retrieved these values, I got the password.

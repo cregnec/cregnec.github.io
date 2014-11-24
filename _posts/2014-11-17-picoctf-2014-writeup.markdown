@@ -3,6 +3,7 @@ layout: post
 title: picoctf 2014 writeup
 category: blog
 tags: ctf writeup reverse exploit
+description: picoCTF is a computer security game targeted at middle and high school students. Never mind, I'm not a high school student, but I still did this ctf with my friends just for fun. Most of the challenges were straightforward except the last level ones. This ctf was designed for learning so that there was a hint for each challenge. I did four of them, three binary exploit (Nevernote, CrudeCrypt, Fancy Cache) and one reverse engineering (Baleful).
 ---
 
 Contents
@@ -518,7 +519,7 @@ secret string address is 0x08048bc8
 Congratulations! Looks like you figured out how to read memory. This can can be a useful tool for defeating ASLR :-) Head over to https://picoctf.com/problem-static/binary/fancy_cache/next_steps.html for some hints on how to go from what you have to a shell!
 {% endhighlight %}
 
-I retrieved the *keSecretString* variable address (line 1, 2) because I wanted to get back this secret information. Then I readed the pointer address to this secret string (line 6 to 9) and the secret string (line 11 to 13). And here came the third hint. It explained the ret-to-libc technique (check above link for more information). At this step, I could read arbitary memory. In order to use this technique, I would need to be able to write to arbitary memory. To do this, I used the same bug and replace the last *cache_get* by *cache_set*.
+I retrieved the *keSecretString* variable address (line 1, 2) because I wanted to get back this secret information. Then I read the pointer address to this secret string (line 6 to 9) and the secret string (line 11 to 13). And here came the third hint. It explained the ret-to-libc technique (check above link for more information). At this step, I could read arbitrary memory. In order to use this technique, I would need to be able to write to arbitrary memory. To do this, I used the same bug and replace the last *cache_get* by *cache_set*.
 
 {% highlight python linenos %}
 def write_mem(target, value):
@@ -631,4 +632,340 @@ So the final exploit: first read the *memcmp's* address (line 16), the used the 
 
 Baleful
 =======
+
 *This program seems to be rather delightfully twisted! Can you get it to accept a password? We need it to get access to some Daedalus Corp files.*
+
+Finally a reverse engineering challenge. A few checks revealed that this binary was packed with *upx*.
+
+{% highlight bash %}
+$ strings -a baleful
+...
+$Info: This file is packed with the UPX executable packer http://upx.sf.net $
+$Id: UPX 3.91 Copyright (C) 1996-2013 the UPX Team. All Rights Reserved. $
+...
+$ upx -d baleful -o baleful.unpacked
+                       Ultimate Packer for eXecutables
+                          Copyright (C) 1996 - 2013
+UPX 3.91        Markus Oberhumer, Laszlo Molnar & John Reiser   Sep 30th 2013
+
+        File size         Ratio      Format      Name
+   --------------------   ------   -----------   -----------
+    148104 <-      6752    4.56%  netbsd/elf386  baleful.unpacked
+
+Unpacked 1 file.
+{% endhighlight %}
+
+I've used *upx* to unpack it and there was no error. Then I loaded this binary in IDA.
+
+{% highlight asm linenos %}
+.text:08049C82 ; int __cdecl main(int argc, const char **argv, const char **envp)
+.text:08049C82 main            proc near
+.text:08049C82                 push    ebp
+.text:08049C83                 mov     ebp, esp
+.text:08049C85                 push    edi
+.text:08049C86                 push    ebx
+.text:08049C87                 and     esp, 0FFFFFFF0h
+.text:08049C8A                 sub     esp, 90h
+.text:08049C90                 mov     eax, large gs:14h
+.text:08049C96                 mov     [esp+8Ch], eax
+.text:08049C9D                 xor     eax, eax
+.text:08049C9F                 lea     eax, [esp+10h]
+.text:08049CA3                 mov     ebx, eax
+.text:08049CA5                 mov     eax, 0
+.text:08049CAA                 mov     edx, 1Fh
+.text:08049CAF                 mov     edi, ebx        ; esp+0x10
+.text:08049CB1                 mov     ecx, edx        ; count 0x1f
+.text:08049CB3                 rep stosd
+.text:08049CB5                 lea     eax, [esp+10h]
+.text:08049CB9                 mov     [esp], eax
+.text:08049CBC                 call    vm_start
+.text:08049CC1                 mov     eax, 0
+.text:08049CC6                 mov     edx, [esp+8Ch]
+.text:08049CCD                 xor     edx, large gs:14h
+.text:08049CD4                 jz      short loc_8049CDB
+.text:08049CD6                 call    ___stack_chk_fail
+.text:08049CDB loc_8049CDB:                            
+.text:08049CDB                 lea     esp, [ebp-8]
+.text:08049CDE                 pop     ebx
+.text:08049CDF                 pop     edi
+.text:08049CE0                 pop     ebp
+.text:08049CE1                 retn
+.text:08049CE1 main            endp
+{% endhighlight %}
+
+The main function was fairly simple. It first initialized a array of size 0x20 that began at address *esp+0x10* to zero (line 12 to 18). Then it passed this array as argument (line 19 to 20) to function *vm_start* (line 21). I named it *vm_start* because it actually was a virtual machine. Let's dissect this function little by little.
+
+{% highlight asm linenos %}
+.text:0804898B                 push    ebp
+.text:0804898C                 mov     ebp, esp
+.text:0804898E                 sub     esp, 0C8h
+.text:08048994                 mov     [ebp+offset], 1000h
+.text:0804899B                 cmp     [ebp+arg_0], 0
+.text:0804899F                 jz      short loc_80489CB
+.text:080489A1                 mov     [ebp+count], 0
+.text:080489A8                 jmp     short init_registers
+{% endhighlight %}
+
+It first created a offset with value 0x1000 (line 4). Then it used previously initialized array to initialize its registers (line 5 to 9). After initialization, I found the main switch of this virtual machine.
+
+{% highlight asm linenos %}
+.text:08049C67 loc_8049C67:                            
+.text:08049C67                 mov     eax, [ebp+offset]       ;0x1000
+.text:08049C6A                 add     eax, 804C0C0h
+.text:08049C6F                 movzx   eax, byte ptr [eax]
+.text:08049C72                 cmp     al, 1Dh                 ;exit opcode
+.text:08049C74                 jnz     not_exit
+.text:08049C7A                 mov     eax, [ebp+reg_table]
+.text:08049C80
+.text:08049C80 locret_8049C80:                         
+.text:08049C80                 leave
+.text:08049C81                 retn
+.text:08049C81 vm_start        endp
+
+.text:08048A2D not_exit:                               
+.text:08048A2D                 mov     eax, [ebp+offset]
+.text:08048A30                 add     eax, 804C0C0h
+.text:08048A35                 movzx   eax, byte ptr [eax]
+.text:08048A38                 movsx   eax, al
+.text:08048A3B                 cmp     eax, 20h ;      ; switch 33 cases
+.text:08048A3E                 ja      addOffset1      ; jumptable 08048A4B default case
+.text:08048A44                 mov     eax, ds:off_8049DD4[eax*4]
+.text:08048A4B                 jmp     eax
+{% endhighlight %}
+
+The virtual machine's memory was located at address 0x0804C0C0 + 0x1000 (line 1, 2). Its opcode size was 8 bits because each time it read one byte from its memory (line 3). Then it verified if the opcode's value was 0x1D, that  was *exit* (line 4). If not (line 5),  it continued to check if the opcode's value was bigger than 0x20 (line 14 to 19), which was the unknown opcode. If the opcode's value was smaller than 0x20, it would fetch it's address (line 21) and jump to it (line 22). Therefore, I knew that this virtual machine had 0x20 opcodes. In order to understand the virtual machine, I had to analyze all its opcodes. Let's take an *add* instruction as an example.
+
+{% highlight asm linenos %}
+.text:08048A8F add:
+.text:08048A8F                 mov     eax, [ebp+offset] ; jumptable 08048A4B case 2
+.text:08048A92                 add     eax, 1
+.text:08048A95                 movzx   eax, vm_mem[eax]
+.text:08048A9C                 movsx   eax, al
+.text:08048A9F                 mov     [ebp+op_flag], eax
+.text:08048AA2                 mov     eax, [ebp+offset]
+.text:08048AA5                 add     eax, 2
+.text:08048AA8                 movzx   eax, vm_mem[eax]
+.text:08048AAF                 movsx   eax, al
+.text:08048AB2                 mov     [ebp+reg_index], eax ; return value register index
+.text:08048AB5                 mov     eax, [ebp+op_flag]
+.text:08048AB8                 cmp     eax, 1
+.text:08048ABB                 jz      short loc_8048B1B
+.text:08048ABD                 cmp     eax, 1
+.text:08048AC0                 jg      short loc_8048ACB
+.text:08048AC2                 test    eax, eax
+.text:08048AC4                 jz      short loc_8048ADE
+.text:08048AC6                 jmp     op_add
+
+.text:08048ACB loc_8048ACB:
+.text:08048ACB                 cmp     eax, 2
+.text:08048ACE                 jz      short loc_8048B4B
+.text:08048AD0                 cmp     eax, 4
+.text:08048AD3                 jz      loc_8048B7B
+.text:08048AD9                 jmp     op_add
+
+.text:08048ADE loc_8048ADE:
+.text:08048ADE                 mov     eax, [ebp+offset]
+.text:08048AE1                 add     eax, 3
+.text:08048AE4                 movzx   eax, vm_mem[eax]
+.text:08048AEB                 movsx   eax, al
+.text:08048AEE                 mov     eax, [ebp+eax*4+reg_table]
+.text:08048AF5                 mov     [ebp+operand1], eax
+.text:08048AF8                 mov     eax, [ebp+offset]
+.text:08048AFB                 add     eax, 4
+.text:08048AFE                 movzx   eax, vm_mem[eax]
+.text:08048B05                 movsx   eax, al
+.text:08048B08                 mov     eax, [ebp+eax*4+reg_table]
+.text:08048B0F                 mov     [ebp+operand2], eax
+.text:08048B12                 add     [ebp+offset], 5
+.text:08048B16                 jmp     op_add
+{% endhighlight %} 
+
+Let's look at the first basic block at *0x08048A8F*. It read the next byte from the virtual machine's memory (line 2 to 6). This byte was used as a flag to indicate the operands used by the add operation. Then it read another byte that was the register index used to store the return value (line 7 to 11). Next, it compared if the operand flag was 0 (line 17), 1 (line 13, 14), 2 (line 22, 23), 4 (line 24, 25). If none of these values matched, it would jump to *0x08048ADE*. *loc_8048ADE* would read two bytes and used them as register indexes (line 29 to 33 and line 35 to 39). Then it loaded the correspondent registers' values as the operands of the *add* instruction (line 33, 34 and line 39, 40). Next, let's look at other possibilities of the add instruction's operands.
+
+{% highlight asm linenos %}
+.text:08048B1B loc_8048B1B:    ;op_flag=1
+.text:08048B1B                 mov     eax, [ebp+offset]
+.text:08048B1E                 add     eax, 3
+.text:08048B21                 movzx   eax, vm_mem[eax]
+.text:08048B28                 movsx   eax, al
+.text:08048B2B                 mov     eax, [ebp+eax*4+reg_table]
+.text:08048B32                 mov     [ebp+operand1], eax
+.text:08048B35                 mov     eax, [ebp+offset]
+.text:08048B38                 add     eax, 4
+.text:08048B3B                 add     eax, 804C0C0h
+.text:08048B40                 mov     eax, [eax]
+.text:08048B42                 mov     [ebp+operand2], eax
+.text:08048B45                 add     [ebp+offset], 8
+.text:08048B49                 jmp     short op_add
+
+.text:08048B4B loc_8048B4B:    ;op_flag=2
+.text:08048B4B                 mov     eax, [ebp+offset]
+.text:08048B4E                 add     eax, 3
+.text:08048B51                 add     eax, 804C0C0h
+.text:08048B56                 mov     eax, [eax]
+.text:08048B58                 mov     [ebp+operand1], eax
+.text:08048B5B                 mov     eax, [ebp+offset]
+.text:08048B5E                 add     eax, 7
+.text:08048B61                 movzx   eax, vm_mem[eax]
+.text:08048B68                 movsx   eax, al
+.text:08048B6B                 mov     eax, [ebp+eax*4+reg_table]
+.text:08048B72                 mov     [ebp+operand2], eax
+.text:08048B75                 add     [ebp+offset], 8
+.text:08048B79                 jmp     short op_add
+
+.text:08048B7B loc_8048B7B:    ;op_flag=4
+.text:08048B7B                 mov     eax, [ebp+offset]
+.text:08048B7E                 add     eax, 3
+.text:08048B81                 add     eax, 804C0C0h
+.text:08048B86                 mov     eax, [eax]
+.text:08048B88                 mov     [ebp+operand1], eax
+.text:08048B8B                 mov     eax, [ebp+offset]
+.text:08048B8E                 add     eax, 7
+.text:08048B91                 add     eax, 804C0C0h
+.text:08048B96                 mov     eax, [eax]
+.text:08048B98                 mov     [ebp+operand2], eax
+.text:08048B9B                 add     [ebp+offset], 0Bh
+.text:08048B9F                 nop
+{% endhighlight %}
+
+While the flag of operand was 1 (*loc_8048B1B*), it read one byte as the register index (line 2 to 7) and an four bytes integer (line 8  to 12) so that the *add* operation would use one register and an integer as operands. While the flag of operand was 2 (*loc_8048B4B*), it first read a four bytes integer (line 17 to 21) and another one byte as the register index (line 22 to 27). While the flag of operand was 4, it read two four-bytes integers (line 32 to 36 and line 37 to 41) as the *add* instruction's operands.
+
+Finally, let's check the basic block that performed the *add* instruction.
+
+{% highlight asm linenos %}
+.text:08048BA0 op_add:
+.text:08048BA0                 mov     eax, [ebp+operand2]
+.text:08048BA3                 mov     edx, [ebp+operand1]
+.text:08048BA6                 add     edx, eax
+.text:08048BA8                 mov     eax, [ebp+reg_index]
+.text:08048BAB                 mov     [ebp+eax*4+reg_table], edx
+.text:08048BB2                 mov     eax, [ebp+reg_index]
+.text:08048BB5                 mov     eax, [ebp+eax*4+reg_table]
+.text:08048BBC                 mov     [ebp+ret_value], eax
+.text:08048BBF                 jmp     loc_8049C67
+{% endhighlight %}
+
+This block just did an *add* operation on previously loaded operands (line 2 to 4) and store the return value in a register (line 5, 6). Then it jumped back to the main switch (line 10). So the above analysis was only the *add* instruction. In order to understand the virtual machine, one should reverse other instructions. I will omit the analysis of other instructions because they were very similar. The following is the instruction encoding table.
+
+| Instruction | Encoding                                            |
+| ----------- | --------------------------------------------------- |
+| INCPC       | &lt;opcode>                                            |
+| RET         | &lt;opcode>                                            |
+| ADD         | &lt;opcode> &lt;flag> &lt;reg \| !> &lt;reg \| m32> &lt;reg \| m32>   |
+| SUB         | &lt;opcode> &lt;flag> &lt;reg \| !> &lt;reg \| m32> &lt;reg \| m32>   |
+| IMUL        | &lt;opcode> &lt;flag> &lt;reg> &lt;reg \| m32> &lt;reg \| m32>       |
+| XOR         | &lt;opcode> &lt;flag> &lt;reg> &lt;reg \| m32> &lt;reg \| m32>       |
+| AND         | &lt;opcode> &lt;flag> &lt;reg> &lt;reg \| m32> &lt;reg \| m32>       |
+| OR          | &lt;opcode> &lt;flag> &lt;reg> &lt;reg \| m32> &lt;reg \| m32>       |
+| SHL         | &lt;opcode> &lt;flag> &lt;reg> &lt;reg \| m32> &lt;reg \| m32>       |
+| SAR         | &lt;opcode> &lt;flag> &lt;reg> &lt;reg \| m32> &lt;reg \| m32>       |
+| IDIV        | &lt;opcode> &lt;flag> &lt;reg> &lt;reg> &lt;reg \| m32> &lt;reg \| m32> |
+| NEG         | &lt;opcode> &lt;reg> &lt;reg>                                |
+| NOT         | &lt;opcode> &lt;reg> &lt;reg>                                |
+| SETZ        | &lt;opcode> &lt;reg> &lt;reg>                                |
+| JMP         | &lt;opcode> &lt;m32>                                      |
+| JZ          | &lt;opcode> &lt;m32>                                      |
+| CALL        | &lt;opcode> &lt;m32>                                      |
+| JS          | &lt;opcode> &lt;m32>                                      |
+| JLE         | &lt;opcode> &lt;m32>                                      |
+| JG          | &lt;opcode> &lt;m32>                                      |
+| JNZ         | &lt;opcode> &lt;m32>                                      |
+| JNS         | &lt;opcode> &lt;m32>                                      |
+| MOV         | &lt;opcode> &lt;flag> &lt;reg \| [reg]> &lt;reg \| m32 \| [reg]>   |
+| INC         | &lt;opcode> &lt;reg>                                      |
+| DEC         | &lt;opcode> &lt;reg>                                      |
+| PUSH        | &lt;opcode> &lt;reg \| m32>                                |
+| POP         | &lt;opcode> &lt;reg>                                      |
+| IOFUNC      | &lt;opcode> &lt;m32>                                      |
+| EXIT        | &lt;opcode>                                            |
+{:class="table"}
+
+&lt;opcode>, &lt;flag, &lt;reg> were all one byte and &lt;m32> was 4 bytes.
+After have got the virtual machine's opcodes, I could disassembly its memory. I used IDA's processor module, check this [repository](https://github.com/cregnec/ida-processor-script) for more information.
+
+{% highlight asm linenos %}
+ROM:1BC0 main:
+ROM:1BC0                 PUSH           R8
+ROM:1BC3                 PUSH           R9
+ROM:1BC6                 PUSH           R10
+ROM:1BC9                 CALL           printEnterPassword
+ROM:1BCE                 MOV            R1, $1E
+ROM:1BD5                 MOV            R0, $4
+ROM:1BDC                 CALL           sub_1080
+ROM:1BE1                 MOV            R10, R0
+ROM:1BE5                 JMP            jmp_getchar_loop
+ROM:1BEA                 JMP            test0xA
+ROM:1BEF
+ROM:1BEF jmp_getchar_loop:
+ROM:1BEF                 MOV            R8, 0
+ROM:1BF6                 JMP            loc_1D66
+ROM:1BFB
+ROM:1BFB get30char:
+ROM:1BFB                 MOV            R29, R8
+ROM:1BFF                 IMUL           R29, $4
+ROM:1C07                 MOV            R0, R10
+ROM:1C0B                 ADD            R29, R0
+ROM:1C10                 MOV            R9, R29
+ROM:1C14                 CALL           getchar
+ROM:1C19                 MOV            R1, R0
+ROM:1C1D                 MOV            [R9], R1
+ROM:1C20                 MOV            R1, [R9]
+ROM:1C23                 MOV            R29, R1
+ROM:1C27                 MOV            R0, $A
+ROM:1C2E                 SUB            R29, R0
+ROM:1C32                 JZ             wrongPassword
+ROM:1C37                 JMP            incCounter
+
+ROM:1D5E incCounter:
+ROM:1D5E                 ADD            R8, 1
+ROM:1D66 loc_1D66:
+ROM:1D66                 MOV            R29, R8   ;R29=0
+ROM:1D6A                 MOV            R0, $1E   ;R0=30
+ROM:1D71                 SUB            R29, R0
+ROM:1D75                 JS             get30char
+ROM:1D7A
+ROM:1D7A test0xA:
+ROM:1D7A                 CALL           getchar
+ROM:1D7F                 MOV            R1, R0
+ROM:1D83                 MOV            R29, R1
+ROM:1D87                 MOV            R0, $A
+ROM:1D8E                 SUB            R29, R0
+ROM:1D92                 JNZ            wrongPassword
+ROM:1D97                 JMP            jmp_pass_check
+{% endhighlight %}
+
+The virtual machine read a password of size 30 (line 35 to 39). If the password's length was smaller than 30, it would display the wrong password message. The *pass_check* function did a lot of operations to generate the final check condition. However if we follow only the read operation of the password, the check condition was indeed relatively simple.
+
+{% highlight asm linenos %}
+ROM:181A                 XOR            R4, R3    ;R4=password[i]
+ROM:181F                 MOV            R29, R2
+ROM:1823                 IMUL           R29, $4
+ROM:182B                 MOV            R0, R8
+ROM:182F                 ADD            R29, R0
+ROM:1834                 MOV            R3, R29
+ROM:1838                 MOV            R3, [R3]
+ROM:183B                 MOV            R29, R4   ;R29=password[i]
+ROM:183F                 MOV            R0, R3
+ROM:1843                 SUB            R29, R0  
+ROM:1847                 JNZ            loc_1851
+ROM:184C                 JMP            loc_1858
+ROM:1851
+ROM:1851 loc_1851:
+ROM:1851                 MOV            R1, 1
+ROM:1858
+ROM:1858 loc_1858:
+ROM:1858                 ADD            R2, 1
+ROM:1860
+ROM:1860 loop_counter:
+ROM:1860                 MOV            R3, R1   ;R3=R1
+ROM:1864                 MOV            R29, R2
+ROM:1868                 MOV            R0, $1E
+ROM:186F                 SUB            R29, R0
+ROM:1873                 JS             loc_17D9
+ROM:1878
+ROM:1878 loc_1878:
+ROM:1878                 AND            R3, R3
+ROM:187C                 JNZ            wrongPassword
+{% endhighlight %}
+
+Each character of the password was xored with some value (line 1) and then the result of xor operation was subtracted with another value in memory (line 7 to 10). If the result of subtraction was not zero, R1 would be set to 1 (line 11, 14, 15). At the end of the loop, if the value of R1 was not zero, the wrong password message would be displayed (line 20 to 29). So, just set breakpoints at XOR and SUB functions in GDB and retrieved these values, I got the password.
