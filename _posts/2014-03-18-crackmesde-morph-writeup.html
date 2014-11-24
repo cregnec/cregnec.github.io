@@ -9,7 +9,7 @@ description: A few days ago, I did the Morph crackme of <a href="http://crackmes
 
 A few days ago, I did the Morph crackme of <a href="http://crackmes.de/">Crackmes.de</a>. Morph is a 32 bits windows executable (Visual C++).  <br />
 <blockquote>Morph: PE32 executable (console) Intel 80386, for MS Windows</blockquote>
-<div class="separator" style="clear: both; text-align: center;"><a href="{{ "/img/blog/crackmes.de/morph/screenshot1.jpg" | prepend: site.baseurl }}" imageanchor="1" style="margin-left: 1em; margin-right: 1em;"><img border="0" src="{{ "/img/blog/crackmes.de/morph/screenshot1.jpg" | prepend: site.baseurl }}" /></a></div>
+<div class="separator" style="clear: both; text-align: center;"><a href="{{ "/assets/images/crackmes.de/morph/screenshot1.jpg" | prepend: site.baseurl }}" imageanchor="1" style="margin-left: 1em; margin-right: 1em;"><img border="0" src="{{ "/img/blog/crackmes.de/morph/screenshot1.jpg" | prepend: site.baseurl }}" /></a></div>
 <div class="separator" style="clear: both; text-align: left;">
 The function _main begins in a strange manner:</div>
 {% highlight asm %}
@@ -184,7 +184,7 @@ There are other two direct tips here:
 .text:004028D9 call    error_exit
 {% endhighlight %}
 We have password[4]='O' and password[3]='M'. If you enter a password ('??DMODE')that passes all above checks, the program will crash unless you have the correct password. There are still the first and second letter that are unknown. In the following loop, the process of decoding is random. At the left side, password[4]='O' is used and unpacked code can be dec eax, ebx, ecx or edx. At the right side, I suppose that it will have the reverse operation of dec, that is inc. So password[0]='G'. Until now there is only one letter left 'G?DMODE'. It didn't find out logically the second letter. However, the pattern 'G?DMODE' looks like 'GODMODE' and with a great chance, my guess was correct!
-<div class="separator" style="clear: both; text-align: center;"><a href="{{ "/img/blog/crackmes.de/morph/screenshot2.jpg" | prepend: site.baseurl }}" imageanchor="1" style="margin-left: 1em; margin-right: 1em;"><img border="0" src="{{ "/img/blog/crackmes.de/morph/screenshot2.jpg" | prepend: site.baseurl }}" /></a></div>  With the correct password, I figured out the trick of the second letter. This letter was used to generate the opcode 'CMP eax (ebx, ecx, or edx), 10h' whose size is three bytes. Finally one version of the decoded dead code is:
+<div class="separator" style="clear: both; text-align: center;"><a href="{{ "/assets/images/crackmes.de/morph/screenshot2.jpg" | prepend: site.baseurl }}" imageanchor="1" style="margin-left: 1em; margin-right: 1em;"><img border="0" src="{{ "/img/blog/crackmes.de/morph/screenshot2.jpg" | prepend: site.baseurl }}" /></a></div>  With the correct password, I figured out the trick of the second letter. This letter was used to generate the opcode 'CMP eax (ebx, ecx, or edx), 10h' whose size is three bytes. Finally one version of the decoded dead code is:
 {% highlight asm %}
 .text:00401FA7 push    edx
 .text:00401FA8 mov     edx, offset $LN26
