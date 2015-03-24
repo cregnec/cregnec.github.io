@@ -410,5 +410,6 @@ No '0x' before the hex value.
 {% endhighlight %}
 After have dumped the RC4 encrypted data, I used the script above to get the 
 clear message, with [this RC4 script](https://github.com/bozhu/RC4-Python/blob/master/rc4.py).
-To get the final flag, we need to crack the public key inside *decryptData*
-function.
+To get the final flag, all we need to do is crack the public key inside *decryptData*
+function. Well, I can't really help for the RSA stuff. Maybe you can try
+[this](http://cado-nfs.gforge.inria.fr/).
