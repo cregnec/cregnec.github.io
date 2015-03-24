@@ -413,3 +413,6 @@ clear message, with [this RC4 script](https://github.com/bozhu/RC4-Python/blob/m
 To get the final flag, all we need to do is crack the public key inside *decryptData*
 function. Well, I can't really help for the RSA stuff. Maybe you can try
 [this](http://cado-nfs.gforge.inria.fr/).
+
+* p=5338389962278553870291184101714006004947169485339674794563
+* q=5383412449593903245786714703606048489378388068474098841689
