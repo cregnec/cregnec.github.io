@@ -375,11 +375,6 @@ import rc4
 import sys                                                                      
 import string                                                                   
                                                                                 
-def xor(byte, choices, key, letter):                                            
-    for j in choices:                                                           
-        if byte ^ j == ord(letter):                                             
-            key.append(j)                                                       
-                                                                                
 encrypted = open("rc4_encrypted", "rb").read()[0:98]                            
 bytes_array = [ i for i in range(0x100)]                                        
 check_string = "BCTF2015!"                                                      
@@ -388,13 +383,13 @@ for k0 in bytes_array:
     key = []                                                                    
     key.append(k0)                                                              
                                                                                 
-    for i, letter in enumerate(check_string):                                   
-        xor(key[i], bytes_array, key, letter)                                   
-    #rc4 decrypt                                                                
-    keystream = rc4.RC4(key)                                                    
-    output = ''                                                                 
-    ok = True                                                                   
-    for c in encrypted:                                                         
+    for i, letter in enumerate(check_string):
+        key.append(key[i] ^ ord(letter))
+    #rc4 decrypt
+    keystream = rc4.RC4(key)
+    output = ''
+    ok = True
+    for c in encrypted:
         c = chr(ord(c) ^ keystream.next())                                      
         if c not in string.printable:                                           
             ok = False                                                          
